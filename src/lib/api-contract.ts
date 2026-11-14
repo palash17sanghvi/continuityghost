@@ -1,0 +1,26 @@
+// Browser-safe wire contracts. Never import provider/database modules here.
+import {z} from 'zod';
+export const categorySchema=z.enum(['wardrobe','props','placement','appearance','action','background']);
+export const reviewStatusSchema=z.enum(['confirmed','dismissed','intentional']);
+const scope=z.string().trim().min(1).max(120);
+const evidence=z.string().trim().min(1).max(3000);
+export const findingSchema=z.object({id:z.string().uuid(),category:categorySchema,description:evidence,referenceEvidence:evidence,candidateEvidence:evidence,uncertainty:evidence,suggestedAction:evidence,status:z.literal('unreviewed')});
+export const memoryFactSchema=z.object({id:z.string().min(1),content:z.string(),source:z.literal('supermemory'),decisionId:z.string().optional()});
+export const memorySchema=z.object({status:z.enum(['disabled','ready','unavailable']),facts:z.array(memoryFactSchema),warning:z.string().optional()});
+export const persistenceSchema=z.object({status:z.enum(['saved','disabled','failed']),warning:z.string().optional()});
+export const analysisResponseSchema=z.object({analysisId:z.string().uuid(),projectId:scope,sceneId:scope,summary:evidence,findings:z.array(findingSchema).max(30),memory:memorySchema,persistence:persistenceSchema});
+export const reviewRequestSchema=z.object({analysisId:z.string().uuid(),findingId:z.string().uuid(),projectId:scope,sceneId:scope,status:reviewStatusSchema,note:z.string().trim().max(4000),consent:z.boolean()});
+export const ingestionStatusSchema=z.enum(['unknown','queued','extracting','chunking','embedding','indexing','done','failed','disabled','unavailable']);
+export const reviewResponseSchema=z.object({persisted:z.literal(true),decisionId:z.string().uuid(),memory:z.object({status:ingestionStatusSchema,id:z.string().optional(),warning:z.string().optional()})});
+export const healthResponseSchema=z.object({geminiConfigured:z.boolean(),model:z.string(),paidAnalysisEnabled:z.boolean(),memoryConfigured:z.boolean(),databaseConfigured:z.boolean()});
+const count=z.number().int().nonnegative();
+export const analyticsResponseSchema=z.object({categories:z.array(z.object({category:categorySchema,count})),outcomes:z.array(z.object({status:z.enum(['unreviewed','confirmed','dismissed','intentional']),count})),trends:z.array(z.object({bucket:z.string(),count})),totals:z.object({analyses:count,findings:count,reviews:count}),timeSeriesMode:z.enum(['timescale','postgres'])});
+export type Finding=z.infer<typeof findingSchema>;
+export type ReviewStatus=z.infer<typeof reviewStatusSchema>;
+export type AnalysisResponse=z.infer<typeof analysisResponseSchema>;
+export type ReviewRequest=z.infer<typeof reviewRequestSchema>;
+export type ReviewResponse=z.infer<typeof reviewResponseSchema>;
+export type HealthResponse=z.infer<typeof healthResponseSchema>;
+export type AnalyticsResponse=z.infer<typeof analyticsResponseSchema>;
+export type ReviewFinding=Omit<Finding,'status'> & {status:'unreviewed'|ReviewStatus;note?:string};
+export type ComparisonInput={projectId:string;sceneId:string;context:string;reference:File;candidate:File;consent:true;costApproved:true;memoryConsent:boolean};

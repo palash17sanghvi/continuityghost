@@ -3,6 +3,7 @@ const { generateContent } = vi.hoisted(()=>({generateContent:vi.fn()}));
 vi.mock('@google/genai',()=>({GoogleGenAI:class {models={generateContent}}}));
 import sharp from 'sharp';
 import { POST } from './route';
+import {analysisResponseSchema} from '../../../lib/api-contract';
 afterEach(()=>{vi.unstubAllEnvs();vi.clearAllMocks();});
 
 async function validRequest(){
@@ -17,7 +18,7 @@ describe('HTTP workflow with mocked Google boundary',()=>{
  it('returns validated provider results scoped to scene',async()=>{
   generateContent.mockResolvedValueOnce({text:JSON.stringify({summary:'No supported differences',findings:[]})});
   const response=await POST(await validRequest());expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({projectId:'film-a',sceneId:'scene-14',findings:[]});
+  expect(analysisResponseSchema.parse(await response.json())).toMatchObject({projectId:'film-a',sceneId:'scene-14',findings:[]});
   const call=generateContent.mock.calls.at(-1)?.[0];expect(call.config.responseMimeType).toBe('application/json');expect(call.contents[0].parts[2].inlineData.mimeType).toBe('image/jpeg');
  });
  it('returns safe error for malformed provider payload',async()=>{generateContent.mockResolvedValueOnce({text:'private malformed data'});const response=await POST(await validRequest());expect(response.status).toBe(502);expect(await response.text()).not.toContain('private malformed data');});
