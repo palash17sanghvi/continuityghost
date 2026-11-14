@@ -1,14 +1,19 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import { analyzeImages, MAX_IMAGE_BYTES, responseSchema, validateImage } from '../../../lib/continuity';
+import { randomUUID } from 'node:crypto';
+import {databaseEnabled,persistAnalysisFailure} from '../../../lib/database';
+import {loadMemory,saveAnalysis} from '../../../lib/workflow';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 90;
 const MAX_BODY = MAX_IMAGE_BYTES * 2 + 100_000;
 const fields = z.object({projectId:z.string().trim().min(1).max(120),sceneId:z.string().trim().min(1).max(120),context:z.string().max(12000),consent:z.literal('true'),costApproved:z.literal('true')});
 const error = (message:string,status:number)=>Response.json({error:message},{status});
 
 export async function POST(request:Request) {
+  const deadline=Date.now()+80_000;
+  const requestSignal=AbortSignal.any([request.signal,AbortSignal.timeout(80_000)]);
   const url=new URL(request.url);
   if (request.headers.get('origin') && request.headers.get('origin') !== url.origin) return error('Cross-origin analysis is not allowed.',403);
   if (!process.env.GEMINI_API_KEY) return error('Gemini is not configured. Add GEMINI_API_KEY to .env.local.',503);
@@ -32,16 +37,26 @@ export async function POST(request:Request) {
   if (!(reference instanceof File) || !(candidate instanceof File)) return error('Upload both reference and candidate images.',400);
   let images;
   try {images=await Promise.all([validateImage(reference),validateImage(candidate)]);} catch(e){return error(e instanceof Error?e.message:'Invalid images.',400);}
+  const startedAt=new Date();
+  const memory=await loadMemory(parsed.data.projectId,parsed.data.sceneId,parsed.data.context || 'Approved continuity rules and intentional exceptions',form.get('memoryConsent')==='true');
   try {
+    const providerBudget=Math.min(45_000,deadline-Date.now()-22_000);
+    if(providerBudget<1000)return error('Request deadline reached before Gemini started. No analysis call was made.',408);
+    const providerSignal=AbortSignal.any([requestSignal,AbortSignal.timeout(providerBudget)]);
     const { GEMINI_API_KEY: apiKey } = process.env;
-    const ai=new GoogleGenAI({apiKey,httpOptions:{timeout:45000}});
-    const result=await analyzeImages({...parsed.data,reference:images[0],candidate:images[1]},async parts=>{
-      const response=await ai.models.generateContent({model:process.env.GEMINI_MODEL || 'gemini-2.5-flash',contents:[{role:'user',parts}],config:{responseMimeType:'application/json',responseJsonSchema:z.toJSONSchema(responseSchema),maxOutputTokens:6000,temperature:0.2}});
+    const ai=new GoogleGenAI({apiKey,httpOptions:{timeout:providerBudget}});
+    const result=await analyzeImages({...parsed.data,reference:images[0],candidate:images[1],memories:memory.facts},async parts=>{
+      const response=await ai.models.generateContent({model:process.env.GEMINI_MODEL || 'gemini-2.5-flash',contents:[{role:'user',parts}],config:{abortSignal:providerSignal,responseMimeType:'application/json',responseJsonSchema:z.toJSONSchema(responseSchema),maxOutputTokens:6000,temperature:0.2}});
       if (!response.text) throw new Error('Empty model response');
       return response.text;
     });
-    return Response.json(result,{headers:{'Cache-Control':'no-store'}});
+    const persistence=await saveAnalysis(result,startedAt);
+    return Response.json({...result,memory,persistence},{headers:{'Cache-Control':'no-store'}});
   } catch {
+    if(databaseEnabled()){
+      try{await persistAnalysisFailure({analysisId:randomUUID(),projectId:parsed.data.projectId,sceneId:parsed.data.sceneId},startedAt,'Gemini request or structured output failed.');}
+      catch{/* Do not mask original provider failure with an event-write failure. */}
+    }
     // Provider errors may contain submitted data; never expose/log raw exceptions.
     return error('Gemini analysis failed or returned invalid findings. Check model access, quota and configuration before retrying; requests may incur charges.',502);
   }

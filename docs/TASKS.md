@@ -1,15 +1,15 @@
 # Tasks
 
-Status convention: unchecked means acceptance not certified here. This documentation pass does not certify tests or mark live integration complete. No database or memory integration exists.
+Status convention: unchecked means live acceptance not certified. Database and memory code now exist behind opt-in flags; live provider verification remains blocked. See [integration runbook](INTEGRATION-VERIFICATION.md).
 
 ## Verified local milestone
 
-- `npm test`: 25 tests passed across two files (mocked provider).
-- `npm run test:e2e`: 3 browser tests passed, including preview validation, consent UI, mocked comparison, review/export and invalidation.
+- `npm test`: 112 tests passed across seven files, including real embedded PostgreSQL migration/query checks and mocked external providers.
+- `npm run test:e2e`: 9 browser tests passed, including consent, save-state regression checks, review/export and analytics.
 - `npm run lint`, TypeScript and production build passed.
 - `npm audit --omit=dev`: 0 production vulnerabilities. Full audit still reports 7 moderate development-tool findings.
 - Desktop and 390px mobile layout checked; no horizontal overflow. Independent backend review found no blockers.
-- Live Gemini remains blocked on credentials and owner cost approval; Supermemory/Tiger Data integrations remain unimplemented.
+- Live Gemini remains blocked on credentials and owner cost approval. Supermemory/Tiger Data implementations exist; live integration remains unverified. Embedded PostgreSQL tests exercise actual migrations and queries without any cloud call.
 
 ## Immediate: two-image Gemini comparison
 

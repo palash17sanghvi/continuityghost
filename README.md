@@ -5,8 +5,8 @@ Local film-continuity review prototype: compare a reference still with a candida
 ## Status and limits
 
 - Gemini request path is implemented; real provider success is **not verified**. Tests use mocks, not real AI results. A missing key or approval must block analysis, never return invented findings.
-- No database, Supermemory integration, durable review history, video analysis, or import adapters are implemented. Project/scene labels provide context, not authenticated isolation.
-- Frontend decisions and exports are session-only. Reloading/closing can lose work; downloading an export does not persist it on the server.
+- Supermemory v5 scene-scoped retrieval/decision ingestion and PostgreSQL persistence/analytics are implemented behind disabled-by-default service flags. Live sponsor success is **not verified**. See [memory setup](docs/MEMORY.md) and [database setup](docs/DATABASE.md).
+- Reviews are local until explicitly saved with a configured database. Supermemory sharing requires separate consent. Reloading can lose unsaved work; JSON exports remain available. Project/scene partitioning is not user authentication.
 - No media is persisted by the application. Approved analysis sends normalized images and supplied context to Google; application non-persistence is not a claim about provider retention.
 - **Local only. No authentication. Do not deploy publicly or expose through tunnels.** Same-origin checks are not authentication.
 

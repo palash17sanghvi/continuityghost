@@ -4,7 +4,7 @@
 
 1. Run `npm ci`, then `npm run dev -- --hostname 127.0.0.1`; open http://127.0.0.1:3000. No public deployment or tunnels: no authentication exists.
 2. Keep `ALLOW_PAID_ANALYSIS=false` for an unconfigured/gated walkthrough. Use two owned or explicitly approved stills; do not upload confidential production material casually.
-3. Explain scope: two-image comparison, human evidence review, session-only decisions/export. No database, memory ingestion, video analysis, or vendor imports.
+3. Explain scope: two-image comparison, human evidence review, local export, opt-in database saves, scene-specific memory and SQL analytics. All live sponsor checks remain blocked until approved credentials exist. Video analysis and vendor imports are not implemented. Follow [integration verification](INTEGRATION-VERIFICATION.md) for full before/after walkthrough.
 
 ## Walkthrough without a real API call
 

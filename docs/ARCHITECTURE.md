@@ -12,12 +12,14 @@ Local browser (loopback)
        ├─ actual image decode + MIME match + normalization
        ├─ Gemini generateContent (two inline normalized images + context)
        └─ schema-validated findings OR honest error
-  ← session-only findings/review/export; no durable storage
+  ← findings/review/export; explicit database save and separate memory sharing
+  ├─ POST /api/reviews → PostgreSQL transaction → optional Supermemory ingestion
+  └─ GET /api/analytics → actual scoped SQL aggregates
 ```
 
 Next.js Node route uses `@google/genai`, `sharp`, and `zod`. Source responsibilities: `src/app/api/analyze/route.ts` handles request gates and provider invocation; `src/lib/continuity.ts` validates images, constructs comparison input, and validates output. Frontend lives in `src/app/page.tsx`. File presence and request construction do not prove real-provider success.
 
-No database queries, object storage, Supermemory ingestion, or durable memory exist in this milestone. Model IDs and timestamps on returned results are response metadata, not a stored audit trail.
+PostgreSQL persistence and Supermemory v5 adapters now exist behind opt-in flags. See [database](DATABASE.md), [memory](MEMORY.md), and [live verification gates](INTEGRATION-VERIFICATION.md). Analysis retrieves memory only with explicit consent, attaches exact retrieved provenance to its response, and persists validated findings atomically when enabled. Review saves use canonical stored evidence, preserve history, and queue memory ingestion separately. Analytics query stored rows/events. No live sponsor success is claimed; no object storage exists.
 
 ## Trust boundaries
 
