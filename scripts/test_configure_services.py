@@ -70,6 +70,11 @@ class ServiceSetupTests(unittest.TestCase):
         result=subprocess.run(['node','-e',code,str(self.path.parent),value],capture_output=True,text=True,check=True,cwd=str(Path(__file__).resolve().parents[1]))
         self.assertEqual(json.loads(result.stdout),{'ok':True,'gemini':True,'disabled':True})
 
+    def test_backend_token_preserves_credentials_and_rejects_replacement(self):
+        services.append_credentials(self.path,{'BACKEND_API_TOKEN':'fixture-token-'+'x'*40})
+        self.assertTrue(self.path.read_bytes().startswith(self.original))
+        with self.assertRaises(ValueError):services.append_credentials(self.path,{'BACKEND_API_TOKEN':'replacement'})
+
     def test_missing_newline_is_preserved(self):
         self.path.write_bytes(b'GEMINI_API_KEY=fixture')
         services.append_credentials(self.path,{'DATABASE_URL':'fixture'})

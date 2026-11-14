@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 const mock = vi.hoisted(() => ({ query: vi.fn(), release: vi.fn(), connect: vi.fn() }));
 vi.mock('pg', () => ({ Pool: class { connect = mock.connect; async end() {} } }));
 import { migrate } from '../../scripts/migrate';
@@ -116,7 +117,7 @@ describe('database boundary', () => {
     expect(mock.query.mock.calls[0][0]).toBe('BEGIN');
     expect(mock.query.mock.calls[1][0]).toContain('pg_advisory_xact_lock');
     const trackedRows = mock.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO schema_migrations')).map(([,params])=>({name:params[0],checksum:params[1]}));
-    expect(trackedRows).toHaveLength(2);
+    expect(trackedRows).toHaveLength((await readdir(new URL('../../migrations',import.meta.url))).filter(name=>name.endsWith('.sql')).length);
     const tracked = [trackedRows[0].name,trackedRows[0].checksum];
     expect(tracked[0]).toBe('001_initial.sql'); expect(tracked[1]).toMatch(/^[a-f0-9]{64}$/);
     mock.query.mockReset().mockImplementation(async(sql:string)=>({rows:sql.startsWith('SELECT name, checksum')?trackedRows:[]}));

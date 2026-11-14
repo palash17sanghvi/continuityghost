@@ -11,9 +11,11 @@ const findingSchema = z.object({
   category: z.enum(['wardrobe', 'props', 'placement', 'appearance', 'action', 'background']),
   description: text, referenceEvidence: text, candidateEvidence: text, uncertainty: text, suggestedAction: text,
   status: z.enum(['unreviewed', 'confirmed', 'dismissed', 'intentional']),
+  severity: z.enum(['low','medium','high']).optional(),
+  confidence: z.object({level:z.enum(['tentative','supported','strong']),basis:text}).optional(),
 });
-const analysisSchema = scopeSchema.extend({ summary: text, findings: z.array(findingSchema).max(30) });
-const reviewSchema = scopeSchema.extend({ findingId: identifier, status: z.enum(['confirmed', 'dismissed', 'intentional']), note: z.string().trim().max(4000) });
+const analysisSchema = scopeSchema.extend({ summary: text, findings: z.array(findingSchema).max(30), memory:z.object({status:z.enum(['disabled','unavailable','ready']),facts:z.array(z.object({id:identifier,decisionId:identifier.optional(),content:text,source:z.enum(['supermemory','local'])})).max(100),warning:text.optional()}).optional() });
+const reviewSchema = scopeSchema.extend({ findingId: identifier, status: z.enum(['confirmed', 'dismissed', 'intentional']), note: z.string().trim().max(4000), idempotencyKey: z.uuid().optional() });
 export type StoredAnalysis = z.infer<typeof analysisSchema>;
 export type StoredReview = z.infer<typeof reviewSchema>;
 type Scope = z.infer<typeof scopeSchema>;
@@ -114,9 +116,10 @@ export async function persistAnalysis(input: StoredAnalysis, startedAt: Date): P
   await transaction(async client => {
     const completedAt = new Date();
     await insertAnalysis(client,result,startedAt,completedAt,'completed',result.summary);
+    if (result.memory) await client.query('UPDATE analyses SET memory_context=$4::jsonb WHERE project_id=$1 AND scene_id=$2 AND id=$3',[result.projectId,result.sceneId,result.analysisId,JSON.stringify(result.memory)]);
     for (const f of result.findings) {
-      await client.query('INSERT INTO findings (id,project_id,scene_id,analysis_id,category,description,reference_evidence,candidate_evidence,uncertainty,suggested_action,status,detected_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
-        [f.id,result.projectId,result.sceneId,result.analysisId,f.category,f.description,f.referenceEvidence,f.candidateEvidence,f.uncertainty,f.suggestedAction,f.status,completedAt]);
+      await client.query('INSERT INTO findings (id,project_id,scene_id,analysis_id,category,description,reference_evidence,candidate_evidence,uncertainty,suggested_action,status,detected_at,severity,confidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)',
+        [f.id,result.projectId,result.sceneId,result.analysisId,f.category,f.description,f.referenceEvidence,f.candidateEvidence,f.uncertainty,f.suggestedAction,f.status,completedAt,f.severity??null,f.confidence?JSON.stringify(f.confidence):null]);
       await event(client,result,'finding_detected',completedAt,f.id,{category:f.category});
     }
     await event(client,result,'analysis_completed',completedAt);
@@ -131,12 +134,30 @@ export async function persistAnalysisFailure(input: Scope, startedAt: Date, reas
     await event(client,scope,'analysis_failed',failedAt,null,{reason:message});
   });
 }
-export async function persistReview(input: StoredReview): Promise<{decisionId: string; content: string}> {
+export async function persistReview(input: StoredReview): Promise<{decisionId: string; content: string; replayed: boolean}> {
   const review = reviewSchema.parse(input);
   return transaction(async client => {
     const params = [review.projectId,review.sceneId,review.analysisId,review.findingId];
     const canonical = await client.query('SELECT category, description, reference_evidence AS "referenceEvidence", candidate_evidence AS "candidateEvidence", uncertainty, suggested_action AS "suggestedAction" FROM findings WHERE project_id=$1 AND scene_id=$2 AND analysis_id=$3 AND id=$4 FOR UPDATE',params);
     if (canonical.rows.length !== 1) throw new Error('Finding does not exist in exact project/scene/analysis scope.');
+    const recordRequest = async (decisionId: string) => {
+      if (review.idempotencyKey) await client.query('INSERT INTO review_requests (project_id,scene_id,analysis_id,finding_id,idempotency_key,decision_id) VALUES ($1,$2,$3,$4,$5,$6)',[...params,review.idempotencyKey,decisionId]);
+    };
+    // Finding lock serializes both request-key claims and current-decision checks.
+    if (review.idempotencyKey) {
+      const prior = await client.query('SELECT d.id, d.status, d.note, r.content FROM review_requests q JOIN review_decisions d ON d.project_id=q.project_id AND d.scene_id=q.scene_id AND d.analysis_id=q.analysis_id AND d.finding_id=q.finding_id AND d.id=q.decision_id JOIN continuity_rules r ON r.project_id=d.project_id AND r.scene_id=d.scene_id AND r.analysis_id=d.analysis_id AND r.finding_id=d.finding_id AND r.decision_id=d.id WHERE q.project_id=$1 AND q.scene_id=$2 AND q.analysis_id=$3 AND q.finding_id=$4 AND q.idempotency_key=$5',[...params,review.idempotencyKey]);
+      if (prior.rows.length) {
+        const previous = prior.rows[0];
+        if (previous.status !== review.status || previous.note !== review.note) throw new Error('Idempotency key already used for a different review.');
+        return {decisionId:previous.id,content:previous.content,replayed:true};
+      }
+    }
+    const current = await client.query('SELECT d.id, d.status, d.note, r.content FROM continuity_rules r JOIN review_decisions d ON d.project_id=r.project_id AND d.scene_id=r.scene_id AND d.analysis_id=r.analysis_id AND d.finding_id=r.finding_id AND d.id=r.decision_id WHERE r.project_id=$1 AND r.scene_id=$2 AND r.analysis_id=$3 AND r.finding_id=$4 AND r.active',params);
+    const previous = current.rows[0];
+    if (previous && previous.status === review.status && previous.note === review.note) {
+      await recordRequest(previous.id);
+      return {decisionId:previous.id,content:previous.content,replayed:true};
+    }
     const f = canonical.rows[0];
     const content = [`${review.status}: ${f.category} — ${f.description}`, `Reference: ${f.referenceEvidence}`, `Candidate: ${f.candidateEvidence}`, `Uncertainty: ${f.uncertainty}`, `Suggested action: ${f.suggestedAction}`, ...(review.note ? [`Review note: ${review.note}`] : [])].join('\n');
     const decisionId = randomUUID(); const at = new Date();
@@ -145,7 +166,8 @@ export async function persistReview(input: StoredReview): Promise<{decisionId: s
     await client.query('UPDATE continuity_rules SET active=false WHERE project_id=$1 AND scene_id=$2 AND analysis_id=$3 AND finding_id=$4 AND active',params);
     await client.query('INSERT INTO continuity_rules (id,project_id,scene_id,analysis_id,finding_id,decision_id,content,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',[randomUUID(),...params,decisionId,content,at]);
     await event(client,review,`review_${review.status}`,at,review.findingId,{decisionId});
-    return {decisionId,content};
+    await recordRequest(decisionId);
+    return {decisionId,content,replayed:false};
   });
 }
 export type Analytics = { categories: {category:string;count:number}[]; outcomes: {status:string;count:number}[]; trends: {bucket:string;count:number}[]; totals: {analyses:number;findings:number;reviews:number}; timeSeriesMode:'timescale'|'postgres' };

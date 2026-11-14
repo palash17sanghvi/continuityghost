@@ -1,5 +1,7 @@
 # Frontend integration: current source contract
 
+> Backend feature-branch update: project/scene/history/export APIs and owner-session authentication are now implemented. [backend-api.md](backend-api.md) supersedes endpoint-availability and authentication statements below; this earlier handoff remains useful for comparison/review UI states. No frontend redesign was performed.
+
 ## Start here
 
 Use `src/lib/api-contract.ts` for browser-safe Zod schemas and derived types, `src/lib/api-client.ts` for `getHealth`, `analyzeComparison`, `saveReview`, and `getAnalytics`, and `src/lib/fixtures.ts` for explicitly synthetic development/test data. These files are the integration seam being added alongside this document; route and workflow source remain authoritative when they disagree. Do not import `continuity.ts`, `database.ts`, `memory.ts`, or `workflow.ts` into client components: they own server-only dependencies and credentials.

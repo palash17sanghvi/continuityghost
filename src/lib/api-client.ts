@@ -3,7 +3,7 @@ import {analysisResponseSchema,analyticsResponseSchema,healthResponseSchema,revi
 export class ApiError extends Error {
  constructor(message:string,public readonly status:number){super(message);this.name='ApiError';}
 }
-async function request<T>(url:string,schema:z.ZodType<T>,init:RequestInit={}):Promise<T>{
+export async function request<T>(url:string,schema:z.ZodType<T>,init:RequestInit={}):Promise<T>{
  const response=await fetch(url,{...init,cache:'no-store',credentials:'same-origin'});
  let data:unknown;
  try{data=await response.json();}catch{throw new ApiError(`Server returned ${response.status} without valid JSON`,response.status);}

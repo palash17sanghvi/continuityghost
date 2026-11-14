@@ -1,0 +1,25 @@
+import {z} from 'zod';
+import {request} from './api-client';
+import {memorySchema} from './api-contract';
+import {projectSchema,sceneSchema,createResourceSchema,resourceIdSchema,storedAnalysisSchema,storedFindingSchema,ruleSchema,eventSchema,pageSchema} from './resource-contract';
+const part=(id:string)=>encodeURIComponent(resourceIdSchema.parse(id));
+const project=(id:string)=>'/api/projects/'+part(id);
+const scene=(p:string,s:string)=>project(p)+'/scenes/'+part(s);
+const analysis=(p:string,s:string,a:string)=>scene(p,s)+'/analyses/'+part(a);
+const json=(body:unknown):RequestInit=>({method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+const page=(limit=50,offset=0)=>{z.number().int().min(1).max(100).parse(limit);z.number().int().min(0).max(2147483647).parse(offset);return `?limit=${limit}&offset=${offset}`;};
+export const listProjects=()=>request('/api/projects',pageSchema(projectSchema));
+export const createProject=(input:z.input<typeof createResourceSchema>)=>request('/api/projects',projectSchema,json(createResourceSchema.parse(input)));
+export const getProject=(id:string)=>request(project(id),projectSchema);
+export const listScenes=(p:string)=>request(project(p)+'/scenes',pageSchema(sceneSchema));
+export const createScene=(p:string,input:z.input<typeof createResourceSchema>)=>request(project(p)+'/scenes',sceneSchema,json(createResourceSchema.parse(input)));
+export const getScene=(p:string,s:string)=>request(scene(p,s),sceneSchema);
+export const listAnalyses=(p:string,s:string,limit=50,offset=0)=>request(scene(p,s)+'/analyses'+page(limit,offset),pageSchema(storedAnalysisSchema));
+export const getAnalysis=(p:string,s:string,a:string)=>request(analysis(p,s,a),storedAnalysisSchema);
+export const getFindings=(p:string,s:string,a:string)=>request(analysis(p,s,a)+'/findings',pageSchema(storedFindingSchema));
+export const getRules=(p:string,s:string)=>request(scene(p,s)+'/rules',pageSchema(ruleSchema));
+export const getEvents=(p:string,limit=50,offset=0)=>request(project(p)+'/events'+page(limit,offset),pageSchema(eventSchema));
+export const exportAnalysis=(p:string,s:string,a:string)=>request(analysis(p,s,a)+'/export',z.object({analysis:storedAnalysisSchema,findings:pageSchema(storedFindingSchema)}));
+export const retrieveMemories=(input:{projectId:string;sceneId:string;query:string;consent:true})=>{const body=z.object({projectId:resourceIdSchema,sceneId:resourceIdSchema,query:z.string().trim().min(1).max(1000),consent:z.literal(true)}).parse(input);return request('/api/memories',memorySchema,json(body));};
+// Login UI supplies owner token once; do not persist token in browser storage.
+export const createSession=(token:string)=>request('/api/session',z.object({authenticated:z.literal(true)}),json({token}));

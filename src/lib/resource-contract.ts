@@ -1,0 +1,20 @@
+// Browser-safe resource API schemas; identifiers must be URL path-safe.
+import {z} from 'zod';
+import {findingSchema,memorySchema,reviewStatusSchema} from './api-contract';
+export const resourceIdSchema=z.string().min(1).max(120).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
+export const projectSchema=z.object({id:resourceIdSchema,name:z.string(),createdAt:z.string()});
+export const sceneSchema=projectSchema.extend({projectId:resourceIdSchema});
+export const createResourceSchema=z.object({id:resourceIdSchema,name:z.string().trim().min(1).max(200)});
+export const decisionSchema=z.object({id:z.string(),projectId:z.string(),sceneId:z.string(),analysisId:z.string(),findingId:z.string(),status:reviewStatusSchema,note:z.string(),createdAt:z.string()});
+export const storedFindingSchema=findingSchema.extend({status:z.enum(['unreviewed','confirmed','dismissed','intentional']),projectId:z.string(),sceneId:z.string(),analysisId:z.string(),detectedAt:z.string(),note:z.string(),decisions:z.array(decisionSchema)});
+export const storedAnalysisSchema=z.object({analysisId:z.string(),projectId:z.string(),sceneId:z.string(),summary:z.string(),status:z.enum(['completed','failed']),startedAt:z.string(),completedAt:z.string(),findings:z.array(storedFindingSchema),decisions:z.array(decisionSchema),memory:memorySchema.optional()});
+export const ruleSchema=z.object({id:z.string(),projectId:z.string(),sceneId:z.string(),analysisId:z.string(),findingId:z.string(),decisionId:z.string(),content:z.string(),createdAt:z.string(),active:z.boolean()});
+export const eventSchema=z.object({id:z.string(),projectId:z.string(),sceneId:z.string(),analysisId:z.string(),findingId:z.string().nullable(),eventType:z.string(),occurredAt:z.string(),payload:z.unknown()});
+export const pageSchema=<T extends z.ZodType>(item:T)=>z.object({items:z.array(item),total:z.number().int().nonnegative(),limit:z.number().int().positive(),offset:z.number().int().nonnegative()});
+export type Project=z.infer<typeof projectSchema>;
+export type Scene=z.infer<typeof sceneSchema>;
+export type StoredAnalysis=z.infer<typeof storedAnalysisSchema>;
+export type StoredFinding=z.infer<typeof storedFindingSchema>;
+export type Decision=z.infer<typeof decisionSchema>;
+export type ActiveRule=z.infer<typeof ruleSchema>;
+export type Event=z.infer<typeof eventSchema>;

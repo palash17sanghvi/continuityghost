@@ -1,8 +1,10 @@
 import { GoogleGenAI } from '@google/genai';
+import { requireBackendAuth } from '../../../lib/backend-auth';
 import { z } from 'zod';
 import { analyzeImages, MAX_IMAGE_BYTES, responseSchema, validateImage } from '../../../lib/continuity';
 import { randomUUID } from 'node:crypto';
 import {databaseEnabled,persistAnalysisFailure} from '../../../lib/database';
+import {getScene,ResourceError} from '../../../lib/resources';
 import {loadMemory,saveAnalysis} from '../../../lib/workflow';
 
 export const runtime = 'nodejs';
@@ -11,7 +13,8 @@ const MAX_BODY = MAX_IMAGE_BYTES * 2 + 100_000;
 const fields = z.object({projectId:z.string().trim().min(1).max(120),sceneId:z.string().trim().min(1).max(120),context:z.string().max(12000),consent:z.literal('true'),costApproved:z.literal('true')});
 const error = (message:string,status:number)=>Response.json({error:message},{status});
 
-export async function POST(request:Request) {
+export async function POST(request: Request) {
+ const authError = requireBackendAuth(request); if (authError) return authError;
   const deadline=Date.now()+80_000;
   const requestSignal=AbortSignal.any([request.signal,AbortSignal.timeout(80_000)]);
   const url=new URL(request.url);
@@ -33,6 +36,10 @@ export async function POST(request:Request) {
   } catch {return error('Malformed upload form.',400);}
   const parsed=fields.safeParse(Object.fromEntries(['projectId','sceneId','context','consent','costApproved'].map(k=>[k,form.get(k)??''])));
   if (!parsed.success) return error('Provide project, scene, context under 12,000 characters, data consent and cost approval.',400);
+  if(databaseEnabled()){
+    try{await getScene(parsed.data.projectId,parsed.data.sceneId);}
+    catch(e){return error(e instanceof ResourceError?e.message:'Scene lookup failed before analysis.',e instanceof ResourceError?e.status:503);}
+  }
   const reference=form.get('reference'), candidate=form.get('candidate');
   if (!(reference instanceof File) || !(candidate instanceof File)) return error('Upload both reference and candidate images.',400);
   let images;
@@ -44,20 +51,27 @@ export async function POST(request:Request) {
     if(providerBudget<1000)return error('Request deadline reached before Gemini started. No analysis call was made.',408);
     const providerSignal=AbortSignal.any([requestSignal,AbortSignal.timeout(providerBudget)]);
     const { GEMINI_API_KEY: apiKey } = process.env;
-    const ai=new GoogleGenAI({apiKey,httpOptions:{timeout:providerBudget}});
+    const ai=new GoogleGenAI({apiKey,httpOptions:{timeout:providerBudget,retryOptions:{attempts:1}}});
     const result=await analyzeImages({...parsed.data,reference:images[0],candidate:images[1],memories:memory.facts},async parts=>{
       const response=await ai.models.generateContent({model:process.env.GEMINI_MODEL || 'gemini-2.5-flash',contents:[{role:'user',parts}],config:{abortSignal:providerSignal,responseMimeType:'application/json',responseJsonSchema:z.toJSONSchema(responseSchema),maxOutputTokens:6000,temperature:0.2}});
       if (!response.text) throw new Error('Empty model response');
       return response.text;
     });
-    const persistence=await saveAnalysis(result,startedAt);
+    const persistence=await saveAnalysis({...result,memory},startedAt);
     return Response.json({...result,memory,persistence},{headers:{'Cache-Control':'no-store'}});
-  } catch {
+  } catch (error) {
     if(databaseEnabled()){
       try{await persistAnalysisFailure({analysisId:randomUUID(),projectId:parsed.data.projectId,sceneId:parsed.data.sceneId},startedAt,'Gemini request or structured output failed.');}
       catch{/* Do not mask original provider failure with an event-write failure. */}
     }
     // Provider errors may contain submitted data; never expose/log raw exceptions.
-    return error('Gemini analysis failed or returned invalid findings. Check model access, quota and configuration before retrying; requests may incur charges.',502);
+    const providerError = error as {status?:unknown;name?:unknown};
+    const timeout = providerError?.status === 504 || providerError?.status === 408 || providerError?.name === 'TimeoutError' || providerError?.name === 'AbortError';
+    const rateLimited = providerError?.status === 429;
+    const malformed = error instanceof SyntaxError || error instanceof z.ZodError || (error instanceof Error && /invalid JSON|empty response/i.test(error.message));
+    return Response.json({
+      error:rateLimited ? 'Gemini quota or rate limit reached. Check quota before submitting a new paid request.' : timeout ? 'Gemini request timed out. No automatic retry was made; requests may incur charges.' : malformed ? 'Gemini returned invalid findings. No automatic retry was made; requests may incur charges.' : 'Gemini analysis failed. Check model access, quota and configuration before submitting a new paid request.',
+      code:rateLimited?'rate_limited':timeout?'timeout':malformed?'malformed_response':'provider_failed',retryable:false,
+    }, { status:rateLimited?429:timeout?504:502 });
   }
 }

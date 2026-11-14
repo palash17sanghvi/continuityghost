@@ -37,7 +37,7 @@ def append_credentials(path, values):
         if any(k in current for k in values):
             raise ValueError('Credential variable already exists; refusing to replace it.')
         for key, value in values.items():
-            if key not in ('SUPERMEMORY_API_KEY', 'DATABASE_URL') or not value or any(c in value for c in '\r\n\0'):
+            if key not in ('SUPERMEMORY_API_KEY', 'DATABASE_URL', 'BACKEND_API_TOKEN') or not value or any(c in value for c in '\r\n\0'):
                 raise ValueError('Invalid credential input.')
             if any(c in value for c in ('"', '\\', '$')):
                 raise ValueError('Credential must be dotenv-safe; URL-encode connection components.')
@@ -82,7 +82,7 @@ def tiger_url(text):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('service', choices=['supermemory', 'tiger', 'status'])
+    parser.add_argument('service', choices=['supermemory', 'tiger', 'auth', 'status'])
     args = parser.parse_args()
     try:
         if args.service == 'status':
@@ -92,7 +92,10 @@ def main():
             for key in FLAGS:
                 print(key + ': ' + ('ENABLED' if values.get(key, '').strip().strip('"\'') == 'true' else 'disabled'))
             return
-        if args.service == 'supermemory':
+        if args.service == 'auth':
+            import secrets
+            append_credentials(ENV, {'BACKEND_API_TOKEN': secrets.token_urlsafe(48)})
+        elif args.service == 'supermemory':
             # Abort instead of getpass's non-TTY fallback, which can echo secrets.
             import sys
             if not sys.stdin.isatty():

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-const { generateContent } = vi.hoisted(()=>({generateContent:vi.fn()}));
-vi.mock('@google/genai',()=>({GoogleGenAI:class {models={generateContent}}}));
+const { generateContent,construct } = vi.hoisted(()=>({generateContent:vi.fn(),construct:vi.fn()}));
+vi.mock('@google/genai',()=>({GoogleGenAI:class {models={generateContent};constructor(options:unknown){construct(options);}}}));
 import sharp from 'sharp';
+vi.mock('../../../lib/backend-auth',()=>({requireBackendAuth:()=>null}));
 import { POST } from './route';
 import {analysisResponseSchema} from '../../../lib/api-contract';
 afterEach(()=>{vi.unstubAllEnvs();vi.clearAllMocks();});
@@ -21,7 +22,16 @@ describe('HTTP workflow with mocked Google boundary',()=>{
   expect(analysisResponseSchema.parse(await response.json())).toMatchObject({projectId:'film-a',sceneId:'scene-14',findings:[]});
   const call=generateContent.mock.calls.at(-1)?.[0];expect(call.config.responseMimeType).toBe('application/json');expect(call.contents[0].parts[2].inlineData.mimeType).toBe('image/jpeg');
  });
- it('returns safe error for malformed provider payload',async()=>{generateContent.mockResolvedValueOnce({text:'private malformed data'});const response=await POST(await validRequest());expect(response.status).toBe(502);expect(await response.text()).not.toContain('private malformed data');});
+ it('disables SDK retries while retaining the 45 second provider cap',async()=>{
+  generateContent.mockResolvedValueOnce({text:JSON.stringify({summary:'No differences',findings:[]})});
+  expect((await POST(await validRequest())).status).toBe(200);
+  expect(construct.mock.calls[0][0].httpOptions).toEqual({timeout:45000,retryOptions:{attempts:1}});
+ });
+ it.each([[{status:429},429,'rate_limited'],[{status:504},504,'timeout'],[{name:'TimeoutError'},504,'timeout'],[{status:503},502,'provider_failed']])('classifies safe provider failures without retry',async(failure,status,code)=>{
+  generateContent.mockRejectedValueOnce(failure);
+  const response=await POST(await validRequest());expect(response.status).toBe(status);expect(await response.json()).toMatchObject({code,retryable:false});expect(generateContent).toHaveBeenCalledTimes(1);
+ });
+ it('returns safe error for malformed provider payload',async()=>{generateContent.mockResolvedValueOnce({text:'private malformed data'});const response=await POST(await validRequest());expect(response.status).toBe(502);const body=await response.json();expect(body).toMatchObject({code:'malformed_response',retryable:false});expect(JSON.stringify(body)).not.toContain('private malformed data');});
 });
 const request=(form?:FormData,headers:Record<string,string>={})=>new Request('http://localhost:3000/api/analyze',{method:'POST',body:form,headers:{host:'localhost:3000',...headers}});
 describe('analysis request gates',()=>{

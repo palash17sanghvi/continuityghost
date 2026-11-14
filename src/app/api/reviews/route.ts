@@ -1,8 +1,10 @@
 import {z} from 'zod';
+import { requireBackendAuth } from '../../../lib/backend-auth';
 import {saveReview} from '../../../lib/workflow';
 export const runtime='nodejs';
-const schema=z.object({analysisId:z.string().uuid(),findingId:z.string().uuid(),projectId:z.string().trim().min(1).max(120),sceneId:z.string().trim().min(1).max(120),status:z.enum(['confirmed','dismissed','intentional']),note:z.string().trim().max(4000),consent:z.boolean()});
+const schema=z.object({analysisId:z.string().uuid(),findingId:z.string().uuid(),projectId:z.string().trim().min(1).max(120),sceneId:z.string().trim().min(1).max(120),status:z.enum(['confirmed','dismissed','intentional']),note:z.string().trim().max(4000),idempotencyKey:z.uuid().optional(),consent:z.boolean()});
 export async function POST(request:Request){
+ const authError = requireBackendAuth(request); if (authError) return authError;
  if(request.headers.get('origin') && request.headers.get('origin')!==new URL(request.url).origin)return Response.json({error:'Cross-origin review is not allowed.'},{status:403});
  try{
   if(!request.headers.get('content-type')?.includes('application/json'))return Response.json({error:'Expected JSON review.'},{status:400});

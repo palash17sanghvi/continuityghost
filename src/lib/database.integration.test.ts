@@ -10,10 +10,39 @@ const scope = {analysisId:'same-analysis',sceneId:'same-scene'};
 beforeAll(async () => {
   vi.stubEnv('DATABASE_URL','postgres://localhost/pglite-test-only'); vi.stubEnv('ALLOW_DATABASE','true');
   boundary.query.mockImplementation((sql:string,params?:unknown[])=>db.query(sql,params));
-  for (const name of ['001_initial.sql','002_active_rules.sql']) await db.exec(await readFile(new URL(`../../migrations/${name}`,import.meta.url),'utf8'));
+  for (const name of ['001_initial.sql','002_active_rules.sql','003_resources.sql','004_review_idempotency.sql']) await db.exec(await readFile(new URL(`../../migrations/${name}`,import.meta.url),'utf8'));
 },30000);
 afterAll(async()=>{await db.close();vi.unstubAllEnvs();});
 describe('actual PostgreSQL via disposable in-process PGlite (no Timescale)',()=>{
+  it('replays identical current decisions and scoped request keys without losing reversal history',async()=>{
+    const s={projectId:'idempotent',sceneId:'scene',analysisId:'analysis',findingId:f.id};
+    await persistAnalysis({...s,summary:'Review',findings:[f]},new Date());
+    const key='00000000-0000-4000-8000-000000000001';
+    const first=await persistReview({...s,status:'confirmed',note:' Match ',idempotencyKey:key});
+    expect(first.replayed).toBe(false);
+    expect(await persistReview({...s,status:'confirmed',note:'Match'})).toEqual({...first,replayed:true});
+    const alias='00000000-0000-4000-8000-000000000002';
+    expect(await persistReview({...s,status:'confirmed',note:'Match',idempotencyKey:alias})).toEqual({...first,replayed:true});
+    const reversed=await persistReview({...s,status:'dismissed',note:'Intent changed'});
+    expect(reversed.decisionId).not.toBe(first.decisionId);
+    expect(await persistReview({...s,status:'confirmed',note:'Match',idempotencyKey:key})).toEqual({...first,replayed:true});
+    expect(await persistReview({...s,status:'confirmed',note:'Match',idempotencyKey:alias})).toEqual({...first,replayed:true});
+    await expect(persistReview({...s,status:'intentional',note:'Different',idempotencyKey:key})).rejects.toThrow('Idempotency key');
+    const third=await persistReview({...s,status:'confirmed',note:'Match'});
+    expect(third.decisionId).not.toBe(first.decisionId);
+    const decisions=await db.query<{count:number}>('SELECT count(*) AS count FROM review_decisions WHERE project_id=$1',[s.projectId]);
+    expect(Number(decisions.rows[0].count)).toBe(3);
+    const rules=await db.query('SELECT decision_id FROM continuity_rules WHERE project_id=$1 AND active',[s.projectId]);
+    expect(rules.rows).toEqual([{decision_id:third.decisionId}]);
+  });
+  it('preserves qualitative finding details and retrieved memory provenance',async()=>{
+    const s={projectId:'metadata',sceneId:'scene',analysisId:'analysis'};
+    const confidence={level:'supported' as const,basis:'Both images show the tabletop'};
+    const memory={status:'ready' as const,facts:[{id:'fact',decisionId:'decision',content:'Prior context',source:'supermemory' as const}]};
+    await persistAnalysis({...s,summary:'Metadata',findings:[{...f,severity:'high',confidence}],memory},new Date());
+    expect((await db.query('SELECT severity,confidence FROM findings WHERE project_id=$1',[s.projectId])).rows).toEqual([{severity:'high',confidence}]);
+    expect((await db.query('SELECT memory_context FROM analyses WHERE project_id=$1',[s.projectId])).rows).toEqual([{memory_context:memory}]);
+  });
   it('rejects obsolete remote decisions after an unpublished reversal, preserving history',async()=>{
     const scoped={analysisId:'reversal',projectId:'reversal-project',sceneId:'scene'};
     await persistAnalysis({...scoped,summary:'Review',findings:[f]},new Date());
