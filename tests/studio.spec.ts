@@ -249,6 +249,36 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
  });
 }
 
+for (const width of [1440, 390]) {
+ test(`long source and evidence text stays readable at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  const stored = result();
+  stored.clipName = `${'cameraA_take_'.repeat(18)}.webm`;
+  stored.summary = `Offline layout fixture: ${'continuity'.repeat(40)}`;
+  stored.findings[0].description = 'WatchPlacement'.repeat(30);
+  stored.findings[0].referenceEvidence = 'LeftWrist'.repeat(40);
+  stored.findings[0].candidateEvidence = 'RightWrist'.repeat(40);
+  stored.findings[0].uncertainty = 'MirroredShot'.repeat(35);
+  stored.findings[0].suggestedAction = 'CheckSource'.repeat(35);
+  const mock = await mockApi(page, { body: stored });
+  await page.goto('/'); await upload(page); await approve(page);
+  await page.getByRole('button', { name: 'Analyze Continuity', exact: true }).click();
+  await expect(page.locator('.analysis-results')).toContainText(stored.summary);
+  await page.locator('.finding-card').click();
+  for (const selector of ['body', '.video-import', '.analysis-results', '.finding-card', '.evidence-panel']) {
+   const element = page.locator(selector);
+   await expect.poll(() => element.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+  }
+  const replace = page.getByRole('button', { name: 'Replace video' });
+  await replace.scrollIntoViewIfNeeded();
+  await expect(replace).toBeInViewport();
+  await expect(page.getByLabel('Review outcome')).toBeVisible();
+  await page.locator('.analysis-results').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `docs/overnight-screenshots/long-evidence-${width}.png`, fullPage: true });
+  expect(mock.external).toEqual([]);
+ });
+}
+
 test('rejects MIME and oversized video before upload', async ({ page }) => {
  const mock = await mockApi(page); await page.goto('/');
  await page.getByLabel('Upload video', { exact: true }).setInputFiles({ name: 'not-video.txt', mimeType: 'text/plain', buffer: Buffer.from('no') });
