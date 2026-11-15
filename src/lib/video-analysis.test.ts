@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createVideoFixture } from '../../scripts/create-video-fixture';
+import { runMediaTool } from './video-extraction';
 const provider = vi.hoisted(()=>({ generate:vi.fn(), options:vi.fn() }));
 vi.mock('@google/genai',()=>({GoogleGenAI:class {
   constructor(options:unknown){provider.options(options);}
@@ -34,6 +35,7 @@ describe('automatic video analysis; only provider mocked',()=>{
   const schema=JSON.stringify(request.config.responseJsonSchema);
   expect(schema).toContain('pairId');expect(schema).not.toMatch(/minLength|maxLength|maxItems|minItems|pattern/);
   expect(request.config.abortSignal).toBeInstanceOf(AbortSignal);
+  expect(request.config.maxOutputTokens).toBe(10_000);
   expect(request.contents[0].text).toContain('untrusted production data');
   expect(request.contents.filter((p:{inlineData?:unknown})=>p.inlineData).length).toBeLessThanOrEqual(8);
   expect(result.findings[0]).toMatchObject({pairId:'pair-000',status:'unreviewed'});
@@ -69,4 +71,58 @@ describe('automatic video analysis; only provider mocked',()=>{
   await expect(analyzeVideo(input)).rejects.toMatchObject({code:'GEMINI_QUOTA',status:429});
   expect(provider.generate).toHaveBeenCalledTimes(1);
  },30_000);
+});
+
+describe('evidence-first regressions (provider mocked, not detection benchmarks)',()=>{
+ it('accepts a real static no-mistake clip with zero findings without inventing an issue',async()=>{
+  const file=path.join(root,'unchanged.mp4');
+  await runMediaTool('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=gray:s=320x180:r=10:d=15','-c:v','libx264','-threads','2','-pix_fmt','yuv420p',file]);
+  provider.generate.mockResolvedValueOnce({text:JSON.stringify({summary:'No supported visible inconsistency.',findings:[]})});
+  const result=await analyzeVideo({...input,buffer:await readFile(file)});
+  expect(result.findings).toEqual([]);expect(provider.generate).toHaveBeenCalledTimes(1);
+ });
+ it('attaches two authoritative timestamps/frame references and qualitative confidence without changing public fields',async()=>{
+  provider.generate.mockResolvedValueOnce({text:JSON.stringify({summary:'One supported possible issue.',findings:[{...finding,interpretation:'suspected_continuity_error',evidenceConfidence:'high'}]})});
+  const result=await analyzeVideo(input);const f=result.findings[0];
+  const pair=result.pairs.find(p=>p.id===f.pairId)!;
+  const a=result.frames.find(frame=>frame.id===pair.referenceFrameId)!,b=result.frames.find(frame=>frame.id===pair.candidateFrameId)!;
+  expect(f.referenceEvidence).toContain(`[${a.timeSeconds.toFixed(2)}s / ${a.id}]`);
+  expect(f.candidateEvidence).toContain(`[${b.timeSeconds.toFixed(2)}s / ${b.id}]`);
+  expect(f.description).toMatch(/^Suspected continuity error:/);expect(f.uncertainty).toContain('confidence: high');
+  expect(Object.keys(f).sort()).toEqual(['id','pairId','category','description','referenceEvidence','candidateEvidence','uncertainty','suggestedAction','status'].sort());
+  expect(f.status).toBe('unreviewed');
+  const prompt=provider.generate.mock.calls[0][0].contents[0].text;
+  expect(prompt).toContain('screen sides is NOT proof of switching hands');expect(prompt).toContain('Do not force a minimum finding count');
+  expect(prompt).toContain('picking up/removing an object');expect(prompt).toContain('not a calibrated probability');
+ });
+ it('preserves multiple independently supported changes on the same evidence pair',async()=>{
+  const prop={...finding,category:'props',description:'Cup changed',referenceEvidence:'Red cup on table',candidateEvidence:'Blue cup on table',interpretation:'observed_difference',evidenceConfidence:'moderate'};
+  provider.generate.mockResolvedValueOnce({text:JSON.stringify({summary:'Two independent visible differences.',findings:[finding,prop]})});
+  const result=await analyzeVideo(input);expect(result.findings).toHaveLength(2);expect(provider.generate).toHaveBeenCalledTimes(1);
+  expect(result.findings[1].description).toMatch(/^Observed difference:/);
+ });
+ it('keeps ambiguous observations separate from errors and does not manufacture confidence',async()=>{
+  provider.generate.mockResolvedValueOnce({text:JSON.stringify({summary:'Visible difference, narrative intent unresolved.',findings:[{...finding,uncertainty:'Actor may have intentionally removed the watch.',interpretation:'observed_difference',evidenceConfidence:'insufficient'}]})});
+  const result=await analyzeVideo(input);expect(result.findings[0].description).toMatch(/^Observed difference:/);
+  expect(result.findings[0].uncertainty).toContain('confidence: not established');expect(result.findings[0].uncertainty).toContain('intentionally removed');
+ });
+ it('collapses repeated evidence with case/punctuation variation but keeps unrelated evidence',async()=>{
+  provider.generate.mockResolvedValueOnce({text:JSON.stringify({summary:'Repeated observation.',findings:[finding,{...finding,description:'Same change repeated',referenceEvidence:' WATCH VISIBLE! ',candidateEvidence:'watch absent.'},{...finding,description:'Separate item',referenceEvidence:'Coat collar up',candidateEvidence:'Coat collar down'}]})});
+  expect((await analyzeVideo(input)).findings).toHaveLength(2);
+ });
+ it.each(['low','insufficient'])('does not upgrade %s evidence into a suspected error',async(evidenceConfidence)=>{
+  provider.generate.mockResolvedValueOnce({text:JSON.stringify({summary:'Weak interpretation.',findings:[{...finding,interpretation:'suspected_continuity_error',evidenceConfidence}]})});
+  expect((await analyzeVideo(input)).findings[0].description).toMatch(/^Observed difference:/);
+ });
+ it.each([
+  {referenceTimeSeconds:99},{candidateTimestamp:'00:99'},{referenceFrameId:'frame-invented'},
+  {evidenceConfidence:'99%'},{interpretation:'definite_error'},
+ ])('rejects invented temporal/frame/confidence claims instead of silently ignoring them: %j',async(extra)=>{
+  provider.generate.mockResolvedValueOnce({text:JSON.stringify({summary:'Invalid provider evidence.',findings:[{...finding,...extra}]})});
+  await expect(analyzeVideo(input)).rejects.toMatchObject({code:'GEMINI_OUTPUT',status:502});expect(provider.generate).toHaveBeenCalledTimes(1);
+ });
+ it('treats provider 504 as a timeout with no generation retry',async()=>{
+  provider.generate.mockRejectedValueOnce({status:504});
+  await expect(analyzeVideo(input)).rejects.toMatchObject({code:'GEMINI_TIMEOUT',status:504});expect(provider.generate).toHaveBeenCalledTimes(1);
+ });
 });

@@ -55,42 +55,64 @@ export function selectFramePairs(frames: Keyframe[], descriptors: Descriptor[]):
     if (i && distance(descriptors[i - 1].coarse, descriptors[i].coarse) > 0.16) shotId++;
     frames[i].shotId = shotId;
   }
-  const candidates: { a: number; b: number; similarity: number; rank: number }[] = [];
+  // Prefer settled, interior evidence over motion/cut boundaries. A long time
+  // gap alone is not evidence of a continuity change.
+  const stability = frames.map((frame, i) => {
+    const neighbors = [i - 1, i + 1].filter(j => frames[j]?.shotId === frame.shotId);
+    return neighbors.length ? neighbors.reduce((sum, j) =>
+      sum + distance(descriptors[i].detail, descriptors[j].detail), 0) / neighbors.length : 1;
+  });
+  const centers = frames.map(frame => {
+    const shot = frames.filter(other => other.shotId === frame.shotId);
+    const start = shot[0].timeSeconds, end = shot[shot.length - 1].timeSeconds;
+    return Math.abs(frame.timeSeconds - (start + end) / 2) / Math.max(1, end - start);
+  });
+  // Whole-image averages can erase a tiny watch/prop. Require both a small
+  // average AND small local residual before collapsing two evidence frames.
+  const equivalent = (a: number, b: number) => {
+    const left = descriptors[a].detail, right = descriptors[b].detail;
+    if (distance(left, right) >= 0.002) return false;
+    for (let i = 0; i < left.length; i++) if (Math.abs(left[i] - right[i]) > 12) return false;
+    return true;
+  };
+  const candidates: { a: number; b: number; similarity: number; rank: number; changed: boolean }[] = [];
   for (let a = 0; a < frames.length; a++) for (let b = a + 1; b < frames.length; b++) {
-    const gap = frames[b].timeSeconds - frames[a].timeSeconds;
-    if (gap < 1.5) continue;
+    if (frames[b].timeSeconds - frames[a].timeSeconds < 1.5) continue;
     const difference = distance(descriptors[a].coarse, descriptors[b].coarse);
-    if (difference > 0.12) continue; // Never force comparisons of unrelated views.
-    const detail = distance(descriptors[a].detail, descriptors[b].detail);
+    if (difference > 0.12) continue; // A visual gate, not semantic comparability.
     const revisit = frames[a].shotId !== frames[b].shotId;
-    candidates.push({ a, b, similarity: 1 - difference,
-      rank: (revisit ? 0.2 : 0) + detail * 2 + Math.min(gap / 60, 0.15) - difference });
+    const changed = !equivalent(a, b);
+    candidates.push({ a, b, similarity: 1 - difference, changed,
+      // Bounded novelty keeps small differences in contention without rewarding
+      // ever-larger movement/lighting changes. The model must verify all pairs.
+      rank: (revisit ? 0.2 : 0) + (changed ? 0.01 : 0) - difference -
+        2 * (stability[a] + stability[b]) - 0.005 * (centers[a] + centers[b]) });
   }
   candidates.sort((a, b) => b.rank - a.rank || a.a - b.a || a.b - b.b);
+  const selected: typeof candidates = [];
   const uses = new Map<number, number>();
-  const pairs: FramePair[] = [];
-  const views = new Set<string>();
-  for (const candidate of candidates) {
-    const { a, b, similarity } = candidate;
-    // Once useful evidence exists, do not spend budget on unchanged cutaways.
-    if (pairs.length && distance(descriptors[a].detail, descriptors[b].detail) < 0.002) continue;
+  // First cover distinct visual view groups, then fill with distinct evidence
+  // states. Shot IDs alone cannot group A-B-A revisits or repeated cutaways.
+  for (const diverse of [true, false]) for (const candidate of candidates) {
+    if (selected.length === 4) break;
+    const { a, b } = candidate;
+    if (selected.length && !candidate.changed) continue;
     if ((uses.get(a) ?? 0) >= 2 || (uses.get(b) ?? 0) >= 2) continue;
-    // Spread pairs across shot combinations before spending budget on one view.
-    const key = `${frames[a].shotId}:${frames[b].shotId}`;
-    // Avoid paying repeatedly for visually equivalent before/after evidence.
-    if (pairs.some(pair => {
-      const pa = frames.findIndex(frame => frame.id === pair.referenceFrameId);
-      const pb = frames.findIndex(frame => frame.id === pair.candidateFrameId);
-      return distance(descriptors[a].detail, descriptors[pa].detail) < 0.015 &&
-        distance(descriptors[b].detail, descriptors[pb].detail) < 0.015;
-    })) continue;
-    if (views.has(key) && pairs.length < Math.min(4, shotId)) continue;
-    pairs.push({ id: `pair-${String(pairs.length).padStart(3, '0')}`, referenceFrameId: frames[a].id,
-      candidateFrameId: frames[b].id, score: Number(similarity.toFixed(4)) });
-    uses.set(a, (uses.get(a) ?? 0) + 1); uses.set(b, (uses.get(b) ?? 0) + 1); views.add(key);
-    if (pairs.length === 4) break;
+    if (selected.some(p => (equivalent(a, p.a) && equivalent(b, p.b)) ||
+      (equivalent(a, p.b) && equivalent(b, p.a)))) continue;
+    if (diverse && selected.some(p =>
+      (distance(descriptors[a].coarse, descriptors[p.a].coarse) < 0.04 &&
+        distance(descriptors[b].coarse, descriptors[p.b].coarse) < 0.04) ||
+      (distance(descriptors[a].coarse, descriptors[p.b].coarse) < 0.04 &&
+        distance(descriptors[b].coarse, descriptors[p.a].coarse) < 0.04))) continue;
+    selected.push(candidate);
+    uses.set(a, (uses.get(a) ?? 0) + 1); uses.set(b, (uses.get(b) ?? 0) + 1);
+    if (selected.length === 4) break;
   }
-  return pairs;
+  return selected.map(({ a, b, similarity }, i) => ({
+    id: `pair-${String(i).padStart(3, '0')}`, referenceFrameId: frames[a].id,
+    candidateFrameId: frames[b].id, score: Number(similarity.toFixed(4)),
+  }));
 }
 
 export async function extractVideo(buffer: Buffer, mimeType: string, signal?: AbortSignal): Promise<{
