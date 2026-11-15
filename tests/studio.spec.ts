@@ -166,7 +166,7 @@ test('one browser-generated video, one action, scoped multipart, timestamp evide
  await expect(page.getByText('Possible mirrored shot; wrist is partly obscured.', { exact: true })).toBeVisible();
  await page.getByLabel('Review outcome').selectOption('intentional'); await page.getByLabel('Review note', { exact: true }).fill('Intentional mirrored insert.');
  await page.getByRole('button', { name: 'Save review', exact: true }).click();
- await expect(page.getByRole('status')).toContainText('Review saved to server');
+ await expect(page.getByRole('status').filter({ hasText: 'Review saved to server' })).toBeVisible();
  expect(mock.stored().findings[0].note).toBe('Intentional mirrored insert.');
  const local = await page.evaluate(() => JSON.parse(localStorage.getItem('continuityghost.video.selection') || '{}'));
  expect(local).toEqual({ projectId: 'my-film', sceneId: 'scene-01', analysisId });
@@ -250,6 +250,48 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
  });
 }
 
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+ test(`unsaved reviews warn before reload and saved reviews leave cleanly at ${viewport.width}px`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  const mock = await mockApi(page); await page.goto('/'); await analyze(page);
+  await page.getByRole('button', { name: 'Issue 1 at 00:10' }).click();
+  const note = page.getByLabel('Review note', { exact: true });
+  const wouldBlockUnload = () => page.evaluate(() => {
+   const event = new Event('beforeunload', { cancelable: true });
+   window.dispatchEvent(event);
+   return event.defaultPrevented;
+  });
+  expect(await wouldBlockUnload()).toBe(false);
+  await note.fill('Keep this unsaved review on reload.');
+  await expect(page.getByRole('status').filter({ hasText: 'Unsaved changes — save before leaving' })).toBeVisible();
+  expect(await wouldBlockUnload()).toBe(true);
+  const dialog = page.waitForEvent('dialog');
+  const reload = page.evaluate(() => { window.location.reload(); });
+  const warning = await dialog;
+  expect(warning.type()).toBe('beforeunload');
+  await warning.dismiss();
+  await reload;
+  await expect(note).toHaveValue('Keep this unsaved review on reload.');
+  expect(mock.requests.filter(request => request.url === '/api/video/reviews')).toHaveLength(0);
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await page.screenshot({ path: `docs/overnight-screenshots/review-unload-${viewport.width}.png`, fullPage: true, animations: 'disabled' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await note.fill('');
+  expect(await wouldBlockUnload()).toBe(false);
+  await page.getByLabel('Review outcome', { exact: true }).selectOption('confirmed');
+  expect(await wouldBlockUnload()).toBe(true);
+  await page.getByRole('button', { name: 'Save review', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Stored review' })).toBeVisible();
+  expect(await wouldBlockUnload()).toBe(false);
+  const unexpectedDialogs: string[] = [];
+  page.on('dialog', async next => { unexpectedDialogs.push(next.type()); await next.dismiss(); });
+  await page.reload();
+  await expect(page.getByLabel('Review outcome', { exact: true })).toHaveValue('confirmed');
+  expect(unexpectedDialogs).toEqual([]);
+  expect(mock.external).toEqual([]);
+ });
+}
+
 test('server error keeps clip and requires fresh per-request cost approval', async ({ page }) => {
  await mockApi(page, { status: 422, body: { error: 'No comparable sampled frames. Try another clip.' } }); await page.goto('/'); await analyze(page);
  await expect(page.locator('.error[role=alert]')).toContainText('No comparable sampled frames');
@@ -274,7 +316,7 @@ test('failed review preserves edits, reload protection and no success claim', as
  await page.getByRole('button', { name: 'Save review', exact: true }).click();
  await expect(page.locator('.error[role=alert]')).toContainText('Storage unavailable');
  await expect(page.getByLabel('Review note', { exact: true })).toHaveValue('Check reshoot.');
- await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
+ await expect(page.getByText('Unsaved changes — save before leaving', { exact: true })).toBeVisible();
  await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeEnabled();
 });
 
@@ -377,7 +419,7 @@ for (const width of [1440, 390]) {
   await expect(page.getByLabel('Review outcome')).toHaveValue('unreviewed');
   await expect(page.getByLabel('Review note', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Share this review with remote continuity memory (optional).')).not.toBeChecked();
-  await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'Unsaved changes' })).toHaveCount(0);
   expect(mock.requests.filter(request => request.url === '/api/video/reviews')).toEqual([]);
   expect(mock.external).toEqual([]);
  });

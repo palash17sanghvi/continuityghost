@@ -100,6 +100,18 @@ Progress must be recorded below with concrete tests, screenshots, decisions and 
 - Demo: retry playback before replacing/reanalyzing after media failure; saved evidence and review can remain available even when video cannot decode. Offline fixtures are not live provider evidence. Unsupported codecs still require supported source encoding; live provider/persistence verification remains excluded.
 - No backend/API, integration, credential, deployment or audit-checkout changes. Port 3200 verified closed after final Playwright run. Own commit hash to resolve next pass; feature push/lease cleanup in cron delivery. No production-ready claim.
 
+### Pass 9 — protect unsaved reviews across browser reloads
+
+- Resolved pass 8 commit from git log: `f3f53dc` (retry video preview without discarding review drafts).
+- Added `beforeunload` protection only while review outcome/note differs from stored finding; reverting edits or saving removes it. Existing status now announces “Unsaved changes — save before leaving.” No draft browser-storage writes or API changes.
+- Offline desktop/mobile regressions trigger a real reload dialog, dismiss and retain draft, verify no implicit review write, revert edits to remove guard, save outcome, reload without dialog and reopen persisted fixture outcome.
+- Verification: `npm test` **227/227**; lint, typecheck and production build passed. Final `npm run test:e2e` **27/27 passed (2.0m)**. Every application command used all three `ALLOW_*` flags false; browser API fixtures intercepted offline on port 3200.
+- Initial targeted run timed out: test awaited reload before dismissing its blocking dialog. Fixed evaluation ordering; targeted tests passed. First full suite exposed two stale status locators after accessible copy change; fixed assertions and reran all 27 successfully.
+- Screenshots: `review-unload-1440.png`, `review-unload-390.png`; visual inspection found no page overflow, clipping or unintended overlap. Mechanical source detector reported no findings but ran regex rules only, not full rendered contrast checks.
+- Browser caveat: prompts depend on browser support/user activation and cannot guarantee recovery after OS/browser termination, especially mobile. Durable draft autosave remains out of scope.
+- Demo: edit review, reload and cancel; then save and reload without warning. Screenshots remain explicitly labeled offline test fixtures, not live AI results.
+- Own commit hash pending, resolve from git log next pass. No merge/deploy, live provider calls or audit checkout edits.
+
 ## Registered schedule
 
 - Improvement job ID: `72b7de8bf476`, every 45 minutes, maximum 13 executions.
