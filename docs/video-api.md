@@ -1,13 +1,14 @@
-# Video API contract (PROPOSED)
+# Video API contract
 
-**Status: contract only.** Routes below are not implemented yet. Build the frontend against `src/lib/video-contract.ts` (Zod, browser-safe). Shapes may change only through a commit that updates both this file and the schema. Existing endpoints in [backend-api.md](backend-api.md) are unchanged.
+**Status: implemented and locally tested (mock and mocked-SDK paths, real FFmpeg, real SQL in embedded PostgreSQL). Not live-verified end to end.** Build the frontend against `src/lib/video-contract.ts` (Zod, browser-safe). Shapes may change only through a commit that updates both this file and the schema. Existing endpoints in [backend-api.md](backend-api.md) are unchanged.
 
 ## Honesty rules the UI must follow
 
 - Every analysis and finding carries `source`: `gemini` (real model output) or `mock` (local development fixture). **Show a visible "MOCK" label on mock data.** Never present mock data as a detection.
 - A finding is an AI observation until a person reviews it. `status: "unreviewed"` means unconfirmed. Only `confirmed` means a reviewer called it a continuity mistake.
 - Not every visual difference is an error. Camera angle, lighting and scripted action can explain a difference. Show `uncertainty` next to each finding.
-- Live Gemini is **not yet verified** for images. `gemini-3.8-flash` timed out (504) on every image attempt. `gemini-3.5-flash-lite` returned 400 INVALID_ARGUMENT on its one approved attempt. Expect `mock` until a live call succeeds.
+- Live Gemini evidence: `gemini-3.8-flash` timed out (504) on both image attempts. `gemini-3.5-flash-lite` returned 200 on one two-image comparison of the synthetic still images and reported the missing wristwatch. **The video pipeline itself has not made a live Gemini call yet.** Until it does, treat `source: "gemini"` on video findings as untested end to end.
+- The default video model is `gemini-3.5-flash-lite` (override with `GEMINI_VIDEO_MODEL`).
 
 ## Auth, scope, limits
 
@@ -28,7 +29,7 @@
 | `GET V/:videoId/stream` | MP4 bytes for `<video src>`. Supports `Range`. | 200 or 206 |
 | `GET V/:videoId/keyframes` | All extracted keyframes with real timestamps. | 200 `{items: Keyframe[]}` |
 | `GET V/:videoId/keyframes/:keyframeId/image` | Full-size JPEG. Add `?size=thumb` for a thumbnail. | 200 `image/jpeg` |
-| `POST V/:videoId/analyses` | Start analysis. Body `{consent:true, costApproved:true, maxComparisons?}`. | 202 `{analysis}` (status `queued`) |
+| `POST V/:videoId/analyses` | Start analysis. Body `{consent:true, costApproved:true, maxComparisons?}`. If an analysis is already queued or running for this video, that same analysis is returned (no second paid run). 409 if the video is not `ready`. | 202 `{analysis}` (status `queued`, or `failed` with `provider_disabled`) |
 | `GET V/:videoId/analyses/:analysisId` | Poll status. Poll every 2 s, stop on `completed`, `completed_with_errors` or `failed`. | 200 `{analysis}` |
 | `GET V/:videoId/analyses/:analysisId/timeline` | Everything the UI needs in one call: video, analysis, keyframes, findings. | 200 `Timeline` |
 | `POST /api/reviews` | **Existing endpoint, unchanged.** Send the timeline finding's `id` as `findingId` and the analysis `id` as `analysisId`. Include a fresh `idempotencyKey` UUID per click. `confirmed` is Confirm, `dismissed` is Dismiss. | 200 |
@@ -77,6 +78,29 @@ Side-by-side view: render `earlier.imageUrl` and `later.imageUrl`. Timeline mark
 
 Upload errors use the existing `{error: string}` body: 400 invalid file or type, 413 too large, 415 not MP4, 422 duration outside 5 to 60 s, 404 unknown scene.
 
-## Persistence plan (backend-side, not frontend work)
+## How it works (backend)
 
-New migration adds `videos`, `keyframes` and a `video_findings` link table that points at the existing `findings` rows. This keeps `POST /api/reviews`, idempotency and scope isolation unchanged. Video files and frames live on local disk for the prototype. A local file-backed PostgreSQL mode is planned for demos while the hosted database stays blocked.
+- Upload is validated (multipart, MP4 `ftyp` header, 50 MiB, 5 to 60 s), stored under `VIDEO_DATA_DIR` (default `.data/videos`, gitignored), and inspected with FFmpeg. There is no `ffprobe` dependency.
+- Shot boundaries come from FFmpeg scene scores. Keyframes are one mid-shot frame per shot (plus 20% and 80% frames in shots of 5 s or longer), capped at 24, at most 1024 px wide, with 240 px thumbnails.
+- Frame pairs: neighbouring shots first, then first versus last, then wider gaps. Never exhaustive. One Gemini request per pair, at most `maxComparisons` (default 4, `VIDEO_MAX_COMPARISONS`, ceiling 8), 60 s deadline, 1024 output tokens, no retries, no thinking or temperature settings. A quota or rejection error stops the run.
+- Findings are stored in the existing `findings` table through `persistAnalysis`, plus a `video_findings` link table (`migrations/005_video.sql`) holding both keyframe references. `POST /api/reviews` is unchanged, so idempotency and scope isolation are inherited. The timeline endpoint joins in the saved status and note, so a reload keeps the decision.
+- Analyses interrupted by a server restart are marked `failed` after 10 minutes instead of staying `running`.
+
+## Local persistence mode (no Tiger Data needed)
+
+Set in `.env.local`: `ALLOW_DATABASE=true` and `DATABASE_URL=pglite:.data/db`. This opens a file-backed embedded PostgreSQL that survives restarts and applies the same `migrations/*.sql` as the hosted schema. Any other `DATABASE_URL` uses the normal `pg` pool with unchanged TLS behavior. Projects and scenes must exist first (`POST /api/projects`, `POST .../scenes`).
+
+## Analysis modes
+
+| Condition | Result |
+|---|---|
+| `GEMINI_API_KEY` set and `ALLOW_PAID_ANALYSIS=true` | Real Gemini comparisons. `source: "gemini"`. |
+| Otherwise, `VIDEO_MOCK_ANALYSIS=true` | One fixture finding whose text starts with `[MOCK]`. `source: "mock"`. No model is called. |
+| Neither | Analysis ends `failed` with `provider_disabled`. |
+
+## Try it locally
+
+1. `npm run demo:video` creates `.demo-video/continuity-demo.mp4` (18 s, three shots, a wristwatch disappears in shot 3).
+2. Sign in with `POST /api/session`, create a project and scene, then `POST V` with the file.
+3. `POST V/:videoId/analyses` with `{"consent":true,"costApproved":true}`, poll the analysis, then read `.../timeline`.
+

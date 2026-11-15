@@ -12,9 +12,11 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
     "demo:images": "tsx scripts/create-demo-images.ts",
-    "setup:gemini": "python3 scripts/configure-gemini.py"
+    "setup:gemini": "python3 scripts/configure-gemini.py",
+    "demo:video": "tsx scripts/create-demo-video.ts"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.16",
     "@google/genai": "^3.3.0",
     "lucide-react": "^1.73.0",
     "next": "16.4.6",
@@ -25,7 +27,6 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.16",
     "@playwright/test": "^1.65.1",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^20",

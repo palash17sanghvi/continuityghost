@@ -1,5 +1,6 @@
-import { Pool, type PoolClient, type QueryResultRow } from 'pg';
+import { type Pool, type PoolClient, type QueryResultRow } from 'pg';
 import { z } from 'zod';
+import { createPool } from './pool';
 import type { StoredAnalysis } from './database';
 
 export class ResourceError extends Error {
@@ -29,7 +30,7 @@ function getPool() {
   const url = process.env.DATABASE_URL;
   if (!pool || poolUrl !== url) {
     if (pool) void pool.end().catch(() => {});
-    pool = new Pool({ connectionString: url, max: 5, connectionTimeoutMillis: 2000, query_timeout: 1500, statement_timeout: 1500 });
+    pool = createPool({ connectionString: url, max: 5, connectionTimeoutMillis: 2000, query_timeout: 1500, statement_timeout: 1500 });
     poolUrl = url;
   }
   return pool;

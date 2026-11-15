@@ -44,3 +44,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# video MVP: uploaded videos, extracted frames, local database and demo media are never committed
+/.data/
+/.demo-video/
+/.demo-images/
+*.mp4

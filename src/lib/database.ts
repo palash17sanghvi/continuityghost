@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { Pool, type PoolClient } from 'pg';
+import { type Pool, type PoolClient } from 'pg';
 import { z } from 'zod';
+import { createPool } from './pool';
 import type { MemoryFact } from './memory';
 
 const identifier = z.string().trim().min(1).max(200);
@@ -30,7 +31,7 @@ function getPool(): Pool {
   const url = process.env.DATABASE_URL!;
   if (!pool || poolUrl !== url) {
     if (pool) void pool.end().catch(() => {});
-    pool = new Pool({ connectionString: url, max: 5, connectionTimeoutMillis: 2000, query_timeout: 1500, statement_timeout: 1500 });
+    pool = createPool({ connectionString: url, max: 5, connectionTimeoutMillis: 2000, query_timeout: 1500, statement_timeout: 1500 });
     poolUrl = url;
   }
   return pool;
@@ -190,3 +191,5 @@ export async function getAnalytics(projectId: string): Promise<Analytics> {
     return { categories: categories.rows.map(r=>({category:r.category,count:Number(r.count)})), outcomes: outcomes.rows.map(r=>({status:r.status,count:Number(r.count)})), trends: trends.rows.map(r=>({bucket:new Date(r.bucket).toISOString(),count:Number(r.count)})), totals:{analyses:Number(t.analyses),findings:Number(t.findings),reviews:Number(t.reviews)}, timeSeriesMode:timescale?'timescale':'postgres' };
   },true);
 }
+
+export {transaction as dbTransaction};
