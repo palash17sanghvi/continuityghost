@@ -12,6 +12,29 @@ export default function VideoImport({ disabled, clip, analysis, activeId, seek, 
  const [error, setError] = useState("");
  const input = useRef<HTMLInputElement>(null);
  const player = useRef<HTMLVideoElement>(null);
+ const timeline = useRef<HTMLDivElement>(null);
+ const [timelineWidth, setTimelineWidth] = useState(0);
+ useEffect(() => {
+  const element = timeline.current;
+  if (!element) return;
+  const observer = new ResizeObserver(([entry]) => setTimelineWidth(entry.contentRect.width));
+  observer.observe(element);
+  return () => observer.disconnect();
+ }, [analysis]);
+ const laneEnds: number[] = [];
+ const markers = (analysis?.findings || []).map((finding, index) => {
+  const pair = analysis!.pairs.find(p => p.id === finding.pairId);
+  const frame = analysis!.frames.find(f => f.id === pair?.candidateFrameId);
+  const at = frame?.timeSeconds || 0;
+  const left = (at / analysis!.duration) * 100;
+  return { finding, index, at, left };
+ }).sort((a, b) => a.at - b.at).map(marker => {
+  const position = marker.left * timelineWidth / 100;
+  let lane = laneEnds.findIndex(end => position >= end + 56);
+  if (lane === -1) lane = laneEnds.length;
+  laneEnds[lane] = position;
+  return { ...marker, lane };
+ }).sort((a, b) => a.index - b.index);
  useEffect(() => {
   const video = player.current;
   if (video && seek) {
@@ -45,11 +68,9 @@ export default function VideoImport({ disabled, clip, analysis, activeId, seek, 
   <input ref={input} aria-label="Upload video" type="file" accept="video/mp4,video/webm,video/quicktime" hidden disabled={disabled} onChange={e => { choose(e.target.files?.[0]); e.target.value = ""; }} />
   {src ? <video key={src} ref={player} src={src} controls playsInline preload="metadata" aria-label="Continuity video player" onLoadedMetadata={metadata} onDurationChange={metadata} onTimeUpdate={() => { const video = player.current; if (!video) return; setTime(video.currentTime); }} onError={() => { onReady(false); setError("Video could not be played. Try a browser-supported MP4 or WebM, or reopen stored analysis."); }} /> : <div className="video-empty"><Film size={40} /><h3>Upload a scene to begin</h3><p>15–60 seconds · up to 64 MiB · MP4 / WebM / MOV</p><p>Selection stays in this browser. Nothing uploads until Analyze Continuity.</p></div>}
   <div className="video-transport"><span>{formatTime(time)}</span><input type="range" aria-label="Video timeline" aria-valuetext={`${formatTime(time)} of ${formatTime(analysis?.duration || duration)}`} min={0} max={analysis?.duration || duration || 1} step="0.01" value={Math.min(time, analysis?.duration || duration || 1)} disabled={!src || !(duration || analysis?.duration)} onChange={e => { if (player.current) { player.current.currentTime = Number(e.target.value); setTime(Number(e.target.value)); } }} /><span>{formatTime(analysis?.duration || duration)}</span></div>
-  {analysis && <div className="issue-timeline" role="group" aria-label="Timestamped issue markers">{analysis.findings.map((finding, index) => {
-   const pair = analysis.pairs.find(p => p.id === finding.pairId)!;
-   const frame = analysis.frames.find(f => f.id === pair.candidateFrameId)!;
-   return <button key={finding.id} aria-pressed={activeId === finding.id} className={activeId === finding.id ? "active" : ""} style={{ left: `${Math.max(3, Math.min(97, frame.timeSeconds / analysis.duration * 100))}%` }} aria-label={`Issue ${index + 1} at ${formatTime(frame.timeSeconds)}`} title={finding.description} onClick={() => onFinding(finding.id)}>{index + 1}<small>{formatTime(frame.timeSeconds)}</small></button>;
-  })}</div>}
+  {analysis && <div ref={timeline} className="issue-timeline" role="group" aria-label="Timestamped issue markers" style={{ height: Math.max(1, laneEnds.length) * 80 + 10 }}>{markers.map(({ finding, index, at, left, lane }) =>
+   <button key={finding.id} aria-pressed={activeId === finding.id} className={activeId === finding.id ? "active" : ""} style={{ left: `${left}%`, top: 8 + lane * 80 }} aria-label={`Issue ${index + 1} at ${formatTime(at)}`} title={finding.description} onClick={() => onFinding(finding.id)}>{index + 1}<small>{formatTime(at)}</small></button>
+  )}</div>}
   {error && <p role="alert" className="error">{error}</p>}
  </section>;
 }

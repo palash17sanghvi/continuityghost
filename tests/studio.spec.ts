@@ -37,9 +37,9 @@ test.beforeAll(async ({ browser }) => {
  await page.close();
 });
 
-type MockOptions = { paid?: boolean; body?: unknown; status?: number; delay?: boolean; historyBody?: unknown; reviewFail?: boolean };
+type MockOptions = { paid?: boolean; body?: unknown; status?: number; delay?: boolean; historyBody?: unknown; reviewFail?: boolean; stored?: VideoAnalysis };
 async function mockApi(page: Page, options: MockOptions = {}) {
- let stored = result();
+ let stored = options.stored ?? result();
  const requests: { url: string; method: string; body: string }[] = [];
  const external: string[] = [];
  await page.route('**/*', async route => {
@@ -65,7 +65,7 @@ async function mockApi(page: Page, options: MockOptions = {}) {
   }
   if (url.pathname === `/api/video/${analysisId}/media`) {
    if (url.searchParams.has('frameId')) {
-    expect(['frame-000', 'frame-001']).toContain(url.searchParams.get('frameId'));
+    expect(stored.frames.map(frame => frame.id)).toContain(url.searchParams.get('frameId'));
     return route.fulfill({ contentType: 'image/png', body: image });
    }
    return route.fulfill({ contentType: 'video/webm', body: video, headers: { 'Accept-Ranges': 'bytes' } });
@@ -213,6 +213,41 @@ test('failed review preserves edits, reload protection and no success claim', as
  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
  await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeEnabled();
 });
+
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+ test(`clustered timeline markers remain accessible at ${viewport.width}px`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  const stored = result();
+  stored.frames.push({ id: 'frame-002', timeSeconds: 10.1, shotId: 1 });
+  stored.pairs.push({ id: 'pair-001', referenceFrameId: 'frame-000', candidateFrameId: 'frame-002', score: 0.8 });
+  stored.findings.push(
+   { ...stored.findings[0], id: '66002f8f-9c62-4d85-a16a-5ef035798746', description: 'Test fixture: second issue at same timestamp' },
+   { ...stored.findings[0], id: '66002f8f-9c62-4d85-a16a-5ef035798747', pairId: 'pair-001', description: 'Test fixture: nearby issue' },
+  );
+  const mock = await mockApi(page, { stored }); await page.goto('/'); await analyze(page);
+  const markers = page.getByRole('group', { name: 'Timestamped issue markers' }).getByRole('button');
+  await expect(markers).toHaveCount(3);
+  const boxes = await markers.evaluateAll(elements => elements.map(element => {
+   const { left, top, right, bottom, width, height } = element.getBoundingClientRect();
+   return { left, top, right, bottom, width, height };
+  }));
+  for (let i = 0; i < boxes.length; i++) {
+   expect(boxes[i].width).toBeGreaterThanOrEqual(44); expect(boxes[i].height).toBeGreaterThanOrEqual(44);
+   for (let j = i + 1; j < boxes.length; j++) {
+    expect(boxes[i].right <= boxes[j].left || boxes[j].right <= boxes[i].left || boxes[i].bottom <= boxes[j].top || boxes[j].bottom <= boxes[i].top).toBe(true);
+   }
+   await markers.nth(i).click(); await expect(markers.nth(i)).toHaveAttribute('aria-pressed', 'true');
+  }
+  await markers.first().focus(); await page.keyboard.press('Enter');
+  await expect(markers.first()).toHaveAttribute('aria-pressed', 'true');
+  await markers.first().focus(); await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
+  await expect(markers.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('body')).toHaveJSProperty('scrollWidth', viewport.width);
+  await markers.first().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `docs/overnight-screenshots/clustered-timeline-${viewport.width}.png`, fullPage: true });
+  expect(mock.external).toEqual([]);
+ });
+}
 
 test('rejects MIME and oversized video before upload', async ({ page }) => {
  const mock = await mockApi(page); await page.goto('/');
