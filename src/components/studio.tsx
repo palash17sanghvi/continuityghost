@@ -25,6 +25,7 @@ export default function Studio() {
  const [healthRefresh, setHealthRefresh] = useState(0);
  const [analysis, setAnalysis] = useState<VideoAnalysis | null>(null);
  const [history, setHistory] = useState<VideoAnalysis[]>([]);
+ const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
  const [activeId, setActiveId] = useState<string | null>(null);
  const [review, setReview] = useState<{ status: Status; note: string }>({ status: "unreviewed", note: "" });
  const [reviewConsent, setReviewConsent] = useState(false);
@@ -78,7 +79,7 @@ export default function Studio() {
  function resetResult() { setAnalysis(null); setActiveId(null); setError(""); setNotice(""); setReviewConsent(false); }
  function changeScope(field: keyof Scope, value: string) {
   if (busy || !canLeave()) return;
-  const next = { ...scope, [field]: value }; setScope(next); resetResult(); setHistory([]); remember(next);
+  const next = { ...scope, [field]: value }; setScope(next); resetResult(); setHistory([]); setHistoryStatus("idle"); remember(next);
  }
  function chooseFile(file: File | null) {
   if (busy || !canLeave()) return false;
@@ -97,18 +98,18 @@ export default function Studio() {
   } catch (e) { if (!controller.signal.aborted) setError(errorMessage(e)); }
   finally { if (!controller.signal.aborted) { setBusy(null); request.current = null; } }
  }
- function cancel() { request.current?.abort(); request.current = null; setBusy(null); setNotice("Request cancelled. Server work may already have started; cancellation does not guarantee a cost refund. Check saved analyses before retrying."); }
+ function cancel() { request.current?.abort(); request.current = null; if (historyStatus === "loading") setHistoryStatus("idle"); setBusy(null); setNotice("Request cancelled. Server work may already have started; cancellation does not guarantee a cost refund. Check saved analyses before retrying."); }
  async function loadHistory() {
   if (busy || !scopeValid || !canLeave()) return;
   const controller = new AbortController(); request.current = controller;
-  setView("history"); setBusy("load"); setError(""); setHistory([]);
+  setView("history"); setBusy("load"); setHistoryStatus("loading"); setError(""); setHistory([]);
   try {
    const selected = { projectId: scope.projectId.trim(), sceneId: scope.sceneId.trim() };
    const body = await responseJson(await fetch(`/api/video/history?${new URLSearchParams(selected)}`, { signal: controller.signal, cache: "no-store" }));
    if (!body || typeof body !== "object" || !("analyses" in body) || !Array.isArray(body.analyses)) throw new Error("Invalid history response.");
    const entries = body.analyses.map(value => parseVideoAnalysis(value, selected));
-   if (!controller.signal.aborted) setHistory(entries);
-  } catch (e) { if (!controller.signal.aborted) setError(errorMessage(e)); }
+   if (!controller.signal.aborted) { setHistory(entries); setHistoryStatus("ready"); }
+  } catch (e) { if (!controller.signal.aborted) { setHistoryStatus("error"); setError(errorMessage(e)); } }
   finally { if (!controller.signal.aborted) { setBusy(null); request.current = null; } }
  }
  async function openAnalysis(id: string) {
@@ -161,7 +162,7 @@ export default function Studio() {
    {health && !health.paidAnalysisEnabled && <p className="notice">Paid analysis disabled by server. Saved reviews remain available. No analysis call will be sent.</p>}
    {error && <p className="error" role="alert">{error}</p>}{notice && <p className="notice" role="status">{notice}</p>}
    {busy && <p className="notice" role="status"><LoaderCircle size={14} className="spin" /> {busy === "analyze" ? "Uploading and analyzing sampled video frames…" : busy === "review" ? "Saving review…" : "Loading stored analysis…"} {busy !== "review" && <button className="secondary" onClick={cancel}><X size={13} /> Cancel request</button>}</p>}
-   {view === "history" ? <section className="history-list"><h2>Stored analyses / {scope.projectId} / {scope.sceneId}</h2>{!busy && !history.length && <p>No stored analyses in this scope.</p>}{history.map(entry => <button className="history-entry" key={entry.analysisId} disabled={!!busy} onClick={() => openAnalysis(entry.analysisId)}><Film size={18} /><span>{entry.clipName}<small>{new Date(entry.createdAt).toLocaleString()} · {entry.findings.length} findings · {entry.persistence.mode}</small></span><ChevronRight size={18} /></button>)}</section> : <>
+   {view === "history" ? <section className="history-list" aria-label="Saved analyses" aria-busy={historyStatus === "loading"}><h2>Stored analyses / {scope.projectId} / {scope.sceneId}</h2>{historyStatus === "idle" && <p>Choose Saved to load analyses for this project and scene.</p>}{historyStatus === "loading" && <p role="status">Loading saved analyses…</p>}{historyStatus === "error" && <div className="empty-analysis"><FolderOpen size={24} aria-hidden="true" /><h3>Saved analyses could not be loaded.</h3><p>Your saved work has not been changed. Retry to check this project and scene.</p><button className="secondary" disabled={!!busy || !scopeValid} onClick={loadHistory}>Retry saved analyses</button></div>}{historyStatus === "ready" && !history.length && <div className="empty-analysis"><FolderOpen size={24} aria-hidden="true" /><h3>No stored analyses in this scope.</h3><p>Analyze a video to create the first saved entry.</p></div>}{history.map(entry => <button className="history-entry" key={entry.analysisId} disabled={!!busy} onClick={() => openAnalysis(entry.analysisId)}><Film size={18} /><span>{entry.clipName}<small>{new Date(entry.createdAt).toLocaleString()} · {entry.findings.length} findings · {entry.persistence.mode}</small></span><ChevronRight size={18} /></button>)}</section> : <>
     <VideoImport disabled={!!busy} clip={clip} analysis={analysis} activeId={finding?.id || null} seek={seek} onFile={chooseFile} onReady={setReady} onFinding={selectFinding} />
     {!analysis && <section className="context-panel"><div className="section-label"><span>02 / ANALYSIS CONTEXT</span><small>OPTIONAL</small></div><label htmlFor="scene-context">Scene context / continuity intent</label><textarea id="scene-context" value={context} maxLength={4000} disabled={!!busy} onChange={e => setContext(e.target.value)} placeholder="Wardrobe, props, intentional changes, scene notes…" /><p className="sampling-note">Automatic sampled comparisons, not an exhaustive frame-by-frame check. Sampling may miss continuity mistakes. Browser checks 15–60 seconds; server duration and file validation are authoritative.</p><div className="consent-stack"><label className="consent"><input type="checkbox" checked={consent} disabled={!!busy} onChange={e => setConsent(e.target.checked)} /><span>I consent to uploading and persistently storing this video and extracted frames on this server, and sending selected keyframes and context to Gemini.</span></label><label className="consent"><input type="checkbox" checked={costApproved} disabled={!!busy} onChange={e => setCostApproved(e.target.checked)} /><span>I approve potential Gemini cost for this analysis request. Approval resets after each request.</span></label><label className="consent"><input type="checkbox" checked={memoryConsent} disabled={!!busy || !health?.memoryConfigured} onChange={e => setMemoryConsent(e.target.checked)} /><span>Use remote continuity memory for this request (optional; {health?.memoryConfigured ? "configured" : "not configured"}).</span></label></div><div className="analysis-action"><p>Selection alone never uploads. No manual frame selection.</p><button className="primary" disabled={!!busy || !clip || !ready || !scopeValid || !consent || !costApproved || !health?.geminiConfigured || !health.paidAnalysisEnabled} onClick={analyze}><Sparkles size={16} /> Analyze Continuity</button></div></section>}
     {analysis && <section className="analysis-results"><div className="results-heading"><div><small>02 / SAMPLED FINDINGS</small><h2>{analysis.findings.length} potential continuity {analysis.findings.length === 1 ? "issue" : "issues"}</h2></div><span>{analysis.frames.length} extracted frames · {analysis.pairs.length} sampled comparisons</span></div><p>{analysis.summary}</p><button className="secondary" onClick={exportJson}>Export JSON</button><small> Stored analysis{dirty ? " + separately labeled unsaved draft" : " and saved reviews"}</small><p className="sampling-note">Automatic sampled comparisons may miss mistakes. Evidence and uncertainty below are server-returned; findings are not confirmed facts.</p><div className="persistence-note"><b>{analysis.persistence.mode === "local" ? "Local persistent fallback — stored on this server, not Postgres." : "Postgres persistence — analysis and reviews saved."}</b>{analysis.persistence.warning && <p>{analysis.persistence.warning}</p>}{analysis.memory.warning && <p>{analysis.memory.warning}</p>}{analysis.memory.facts?.map(f => <p key={f.id}>{f.content}</p>)}</div>

@@ -88,6 +88,42 @@ async function analyze(page: Page) {
  await page.getByRole('button', { name: 'Analyze Continuity', exact: true }).click();
 }
 
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+ test(`saved history distinguishes loading, failure and empty at ${viewport.width}px`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  const mock = await mockApi(page);
+  let finish: (() => void) | undefined;
+  const pending = new Promise<void>(resolve => { finish = resolve; });
+  let attempts = 0;
+  await page.route('**/api/video/history?**', async route => {
+   attempts++;
+   if (attempts === 1) {
+    await pending;
+    await route.fulfill({ status: 503, json: { error: 'Offline fixture: history temporarily unavailable.' } });
+   } else await route.fulfill({ json: { analyses: [] } });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Saved analyses', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Loading saved analyses' })).toBeVisible();
+  await expect(page.getByText('No stored analyses in this scope.')).toHaveCount(0);
+  finish!();
+  await expect(page.getByText('Saved analyses could not be loaded.')).toBeVisible();
+  await expect(page.getByText('No stored analyses in this scope.')).toHaveCount(0);
+  await page.screenshot({ path: `docs/overnight-screenshots/history-error-${viewport.width}.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Retry saved analyses' }).click();
+  await expect(page.getByText('No stored analyses in this scope.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry saved analyses' })).toHaveCount(0);
+  await expect(page.locator('.workspace [role="alert"]')).toHaveCount(0);
+  await page.getByLabel('Scene ID', { exact: true }).fill('scene-02');
+  await expect(page.getByText('Choose Saved to load analyses for this project and scene.')).toBeVisible();
+  await expect(page.getByText('No stored analyses in this scope.')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Saved analyses', exact: true }).click();
+  await expect(page.getByText('No stored analyses in this scope.')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(mock.external).toEqual([]);
+ });
+}
+
 test('one browser-generated video, one action, scoped multipart, timestamp evidence and persisted review reload', async ({ page }) => {
  const mock = await mockApi(page); await page.goto('/');
  const layout = await page.evaluate(() => {

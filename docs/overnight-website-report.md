@@ -46,6 +46,16 @@ Progress must be recorded below with concrete tests, screenshots, decisions and 
 - Demo: from a finding's evidence panel, activate Reference/Candidate; the source player comes back into view at the evidence time, paused for human inspection. Future checks should verify both time **and** viewport/focus; a correct seek alone is not a complete navigation interaction.
 - No live Gemini/Supermemory/Tiger calls, merge, deployment, credential reads or original-checkout edits. Test server exited after E2E; port 3200 has no listener. This pass's commit hash can be resolved from git log next pass.
 
+### Pass 5 — honest saved-history loading, failure and recovery (2026-11-15 02:38 Phoenix)
+
+- Resolved pass 4 commit from git log: `1c9d3022991cb900257ca63d34b273233902c6baa` (long source/evidence containment).
+- Highest-impact verified gap: history fetch failure cleared the list and displayed “No stored analyses in this scope,” incorrectly implying saved work was absent. Added explicit idle/loading/ready/error history states, scoped loading semantics, recovery guidance and a Retry saved analyses action. Empty state now appears only after a successful empty response; changing scope or cancelling a pending history read resets to an honest not-yet-loaded state. Existing design and backend/API contracts preserved.
+- Added desktop 1440px and mobile 390px offline tests covering pending request, 503 failure, absence of false empty message, successful retry, scope-change reset, no horizontal overflow and no external requests. Initial regressions reproduced missing loading UI; subsequent test-only failure was an empty Next dev announcer `role=alert`, fixed by checking workspace alerts rather than framework chrome.
+- Verification: `npm test` **227 passed / 18 files**; final `npm run test:e2e` **21 passed**; `npm run lint`, `npm run typecheck`, `npm run build` passed. All application commands used `ALLOW_PAID_ANALYSIS=false ALLOW_SUPERMEMORY=false ALLOW_DATABASE=false`. Final build ran after E2E completed. No live service calls.
+- Visually inspected `docs/overnight-screenshots/history-error-1440.png` and `history-error-390.png`: contained readable failure guidance and visible retry action using incumbent visual system. Impeccable component source detector returned **0 findings**; not a runtime contrast audit. Prior suite-regenerated screenshots restored to avoid unrelated binary churn.
+- Test server exited; port 3200 connection refused after verification. Original audit checkout untouched; no credentials, backend changes, merge or deployment. Current commit hash will be resolved from git log next pass.
+- Demo recommendation: use offline failure injection to show that unavailable history is not presented as missing work, then retry; normal saved review workflow remains covered. Remaining candidates: runtime timeline resize regression, tall dense markers, broad contrast audit.
+
 ### Pass 4 — contain long filenames and evidence without horizontal overflow (2026-11-15 01:34 Phoenix)
 
 - Resolved prior pass commit: `0e9bf51` (clustered timeline targets). Rechecked upload validation; existing rejection already preserves source, so no upload behavior changed.
