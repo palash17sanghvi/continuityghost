@@ -10,6 +10,7 @@ export default function VideoImport({ disabled, clip, analysis, activeId, seek, 
  const [time, setTime] = useState(0);
  const [duration, setDuration] = useState(0);
  const [error, setError] = useState("");
+ const [mediaError, setMediaError] = useState(false);
  const input = useRef<HTMLInputElement>(null);
  const player = useRef<HTMLVideoElement>(null);
  const timeline = useRef<HTMLDivElement>(null);
@@ -66,11 +67,12 @@ export default function VideoImport({ disabled, clip, analysis, activeId, seek, 
  return <section className="video-import" aria-label="Video upload and timeline">
   <header><div><small>01 / SOURCE CLIP</small><h2><Film size={18} /> {analysis?.clipName || clip?.name || "One clip. Automatic comparisons."}</h2></div><button className="secondary" disabled={disabled} onClick={() => input.current?.click()}><Upload size={15} /> {clip || analysis ? "Replace video" : "Upload video"}</button></header>
   <input ref={input} aria-label="Upload video" type="file" accept="video/mp4,video/webm,video/quicktime" hidden disabled={disabled} onChange={e => { choose(e.target.files?.[0]); e.target.value = ""; }} />
-  {src ? <video key={src} ref={player} src={src} controls playsInline preload="metadata" aria-label="Continuity video player" onLoadedMetadata={metadata} onDurationChange={metadata} onTimeUpdate={() => { const video = player.current; if (!video) return; setTime(video.currentTime); }} onError={() => { onReady(false); setError("Video could not be played. Try a browser-supported MP4 or WebM, or reopen stored analysis."); }} /> : <div className="video-empty"><Film size={40} /><h3>Upload a scene to begin</h3><p>15–60 seconds · up to 64 MiB · MP4 / WebM / MOV</p><p>Selection stays in this browser. Nothing uploads until Analyze Continuity.</p></div>}
+  {src ? <video key={src} ref={player} src={src} controls playsInline preload="metadata" aria-label="Continuity video player" onLoadStart={() => setMediaError(false)} onLoadedMetadata={metadata} onDurationChange={metadata} onTimeUpdate={() => { const video = player.current; if (!video) return; setTime(video.currentTime); }} onError={() => { onReady(false); setMediaError(true); }} /> : <div className="video-empty"><Film size={40} /><h3>Upload a scene to begin</h3><p>15–60 seconds · up to 64 MiB · MP4 / WebM / MOV</p><p>Selection stays in this browser. Nothing uploads until Analyze Continuity.</p></div>}
   <div className="video-transport"><span>{formatTime(time)}</span><input type="range" aria-label="Video timeline" aria-valuetext={`${formatTime(time)} of ${formatTime(analysis?.duration || duration)}`} min={0} max={analysis?.duration || duration || 1} step="0.01" value={Math.min(time, analysis?.duration || duration || 1)} disabled={!src || !(duration || analysis?.duration)} onChange={e => { if (player.current) { player.current.currentTime = Number(e.target.value); setTime(Number(e.target.value)); } }} /><span>{formatTime(analysis?.duration || duration)}</span></div>
   {analysis && <div ref={timeline} className="issue-timeline" role="group" aria-label="Timestamped issue markers" style={{ height: Math.max(1, laneEnds.length) * 80 + 10 }}>{markers.map(({ finding, index, at, left, lane }) =>
    <button key={finding.id} aria-pressed={activeId === finding.id} className={activeId === finding.id ? "active" : ""} style={{ left: `${left}%`, top: 8 + lane * 80 }} aria-label={`Issue ${index + 1} at ${formatTime(at)}`} title={finding.description} onClick={() => onFinding(finding.id)}>{index + 1}<small>{formatTime(at)}</small></button>
   )}</div>}
   {error && <p role="alert" className="error">{error}</p>}
+  {mediaError && <div className="error" role="alert"><p>Browser could not preview this video. Your analysis and review edits are unchanged. Retry playback; if it still fails, use a supported MP4/WebM/MOV codec.</p><button className="secondary" disabled={disabled} onClick={() => { setMediaError(false); player.current?.load(); player.current?.focus({ preventScroll: true }); }}>Retry video preview</button></div>}
  </section>;
 }

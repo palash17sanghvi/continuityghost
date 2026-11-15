@@ -222,6 +222,34 @@ test('paid disabled never sends an analysis request' , async ({ page }) => {
  expect(mock.requests.filter(r => r.url === '/api/video/analyze')).toHaveLength(0);
 });
 
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+ test(`failed stored video can retry without losing review or rerunning analysis at ${viewport.width}px`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  const mock = await mockApi(page); await page.goto('/'); await analyze(page);
+  await page.getByRole('button', { name: 'Issue 1 at 00:10' }).click();
+  await page.getByLabel('Review note', { exact: true }).fill('Keep this draft while retrying playback.');
+  await expect.poll(() => page.locator('video').evaluate(video => (video as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
+  await page.locator('video').dispatchEvent('error');
+  const retry = page.getByRole('button', { name: 'Retry video preview', exact: true });
+  await expect(retry).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Video upload and timeline' }).getByRole('alert')).toContainText('Your analysis and review edits are unchanged.');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await page.screenshot({ path: `docs/overnight-screenshots/video-retry-${viewport.width}.png`, fullPage: true, animations: 'disabled' });
+  const mediaRequests = () => mock.requests.filter(request => request.url === `/api/video/${analysisId}/media`).length;
+  const before = mediaRequests();
+  await retry.focus(); await page.keyboard.press('Enter');
+  await expect(page.locator('video')).toBeFocused();
+  await expect(retry).toHaveCount(0);
+  await expect.poll(mediaRequests).toBeGreaterThan(before);
+  await expect.poll(() => page.locator('video').evaluate(video => (video as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
+  await expect(page.getByLabel('Review note', { exact: true })).toHaveValue('Keep this draft while retrying playback.');
+  expect(mock.requests.filter(request => request.url === '/api/video/analyze')).toHaveLength(1);
+  expect(mock.requests.filter(request => request.url === '/api/video/reviews')).toHaveLength(0);
+  expect(mock.external).toEqual([]);
+ });
+}
+
 test('server error keeps clip and requires fresh per-request cost approval', async ({ page }) => {
  await mockApi(page, { status: 422, body: { error: 'No comparable sampled frames. Try another clip.' } }); await page.goto('/'); await analyze(page);
  await expect(page.locator('.error[role=alert]')).toContainText('No comparable sampled frames');

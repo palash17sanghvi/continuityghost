@@ -88,6 +88,18 @@ Progress must be recorded below with concrete tests, screenshots, decisions and 
 - Impeccable source detector: one TSX scanned, no source findings; regex-only result does not verify contrast/rendered layout. Port 3200 closed after Playwright cleanup. Own commit hash to resolve next pass; feature push status in cron delivery. No merge/deploy/live calls or audit-checkout changes.
 - Demo: edit a review, reselect its timeline marker, confirm draft stays intact; switching findings still prompts before discarding.
 
+### Pass 7 — recover failed video previews (2026-11-15 04:47–05:06 Phoenix)
+
+- Resolved prior pending hash: `e7609377151029266ced060158460ab59db30e52` — preserve active-finding review drafts.
+- Added **Retry video preview** to playback errors. Reloads only existing media, returns keyboard focus to video controls, and keeps selected finding/review draft intact. Does not re-upload, rerun analysis, or save review. Codec guidance stays explicit: retry cannot fix unsupported encoding.
+- Playback failure state is separate from file/duration validation; retry cannot clear validation errors or bypass upload readiness. A new source load clears obsolete playback failure.
+- Regression first reproduced missing recovery action on desktop/mobile. Two new offline 1440px/390px tests cover error/action visibility, keyboard retry, focused video, fresh media request, playable metadata, retained draft, no extra analysis/review request, no external requests, and no horizontal overflow.
+- Verification: `npm test` **227/227 passed**; `npm run lint`, `npm run typecheck`, `npm run build` **passed**; final `npm run test:e2e` **25/25 passed** (1.4 minutes). All application commands used `ALLOW_PAID_ANALYSIS=false ALLOW_SUPERMEMORY=false ALLOW_DATABASE=false`. No credentials or live services used.
+- Visually inspected `docs/overnight-screenshots/video-retry-1440.png` and `video-retry-390.png`: alert/action visible without clipping or overlap; mobile wraps cleanly. Reset scroll before full-page capture avoids sticky-header screenshot artifact from prior captures. Restored incidental regenerated screenshots to avoid unrelated binary churn.
+- Impeccable detector: no source matches; regex-only TSX scan is not contrast/accessibility certification. Minor pre-existing flush card-edge spacing left unchanged for surgical scope.
+- Demo: retry playback before replacing/reanalyzing after media failure; saved evidence and review can remain available even when video cannot decode. Offline fixtures are not live provider evidence. Unsupported codecs still require supported source encoding; live provider/persistence verification remains excluded.
+- No backend/API, integration, credential, deployment or audit-checkout changes. Port 3200 verified closed after final Playwright run. Own commit hash to resolve next pass; feature push/lease cleanup in cron delivery. No production-ready claim.
+
 ## Registered schedule
 
 - Improvement job ID: `72b7de8bf476`, every 45 minutes, maximum 13 executions.
