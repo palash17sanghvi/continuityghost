@@ -77,6 +77,17 @@ Progress must be recorded below with concrete tests, screenshots, decisions and 
 - Remaining: high-density timelines can become tall with many same-time findings; lane layout favors safe individual targets over hiding findings. Existing scrolled sticky workspace header can cross top content in full-page captures; not changed in this surgical pass. Runtime resize-specific regression and broader contrast audit remain worthwhile follow-ups.
 - Demo: select each numbered marker in a crowded comparison; each remains reachable and opens its own finding, with source player paused at its timestamp. No live-provider verification, merge or deployment. All application commands ran with `ALLOW_PAID_ANALYSIS=false ALLOW_SUPERMEMORY=false ALLOW_DATABASE=false`. Original audit checkout untouched. Port 3200 verified closed after tests. Commit hash to resolve from next git log.
 
+### Pass 6 — preserve active-finding review drafts (2026-11-15 03:43 Phoenix)
+
+- Resolved prior pending hash: `a0f26d1` — saved-history failure/empty-state fix.
+- Fixed same-finding reselection: clicking the active finding/marker prompted to discard edits and accepting reset the draft and sharing choice. Reselecting now seeks the candidate without a false discard prompt or resetting review state. Switching findings still requires discard confirmation and clears sharing consent.
+- Surgical frontend change: one guard adjustment and early return in `selectFinding`. No API, backend, provider, storage or consent contract changes.
+- Added 1440px/390px offline regressions: no same-finding dialog; outcome/note/consent survive reselection; cancelling a switch preserves draft; accepting clears draft/consent; no review POST or external requests. Regression failed before fix with two unexpected discard dialogs. Initial test-authoring retries corrected fixture labels/selectors before the real regression was reproduced.
+- Final verification: `npm test` **227/227**, lint/typecheck/build passed; `npm run test:e2e` **23/23**. All application commands used `ALLOW_PAID_ANALYSIS=false ALLOW_SUPERMEMORY=false ALLOW_DATABASE=false`.
+- Visually inspected offline `docs/overnight-screenshots/review-draft-1440.png` and `review-draft-390.png`: draft, selected outcome and checked sharing choice remain visible. Existing fixed navigation/header crosses lower content in scrolled full-page captures; focused viewport inspection remains a follow-up, not evidence of a newly introduced layout regression. Prior incidental screenshot regeneration restored.
+- Impeccable source detector: one TSX scanned, no source findings; regex-only result does not verify contrast/rendered layout. Port 3200 closed after Playwright cleanup. Own commit hash to resolve next pass; feature push status in cron delivery. No merge/deploy/live calls or audit-checkout changes.
+- Demo: edit a review, reselect its timeline marker, confirm draft stays intact; switching findings still prompts before discarding.
+
 ## Registered schedule
 
 - Improvement job ID: `72b7de8bf476`, every 45 minutes, maximum 13 executions.

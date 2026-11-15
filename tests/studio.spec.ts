@@ -315,6 +315,46 @@ for (const width of [1440, 390]) {
  });
 }
 
+for (const width of [1440, 390]) {
+ test(`active finding preserves unsaved review and consent at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  const stored = result();
+  stored.findings.push({ ...stored.findings[0], id: '77002f8f-9c62-4d85-a16a-5ef035798745', description: 'Second offline finding' });
+  const mock = await mockApi(page, { body: stored });
+  await page.route('**/api/health', route => route.fulfill({ json: { geminiConfigured: true, model: 'test-no-call', paidAnalysisEnabled: true, memoryConfigured: true, databaseConfigured: false } }));
+  await page.goto('/'); await analyze(page);
+  await page.locator('.finding-card').first().click();
+  await page.getByLabel('Review outcome').selectOption('confirmed');
+  await page.getByLabel('Review note', { exact: true }).fill('Draft: check source take before confirming.');
+  await page.getByLabel('Share this review with remote continuity memory (optional).').check();
+  const unexpectedDialogs: string[] = [];
+  const dismissUnexpected = async (dialog: import('@playwright/test').Dialog) => { unexpectedDialogs.push(dialog.message()); await dialog.dismiss(); };
+  page.on('dialog', dismissUnexpected);
+  await page.locator('.finding-card').first().click();
+  await expect(page.getByLabel('Review outcome')).toHaveValue('confirmed');
+  await expect(page.getByLabel('Review note', { exact: true })).toHaveValue('Draft: check source take before confirming.');
+  await page.getByRole('group', { name: 'Timestamped issue markers' }).getByRole('button').first().click();
+  await expect(page.getByLabel('Review note', { exact: true })).toHaveValue('Draft: check source take before confirming.');
+  await expect(page.getByLabel('Share this review with remote continuity memory (optional).')).toBeChecked();
+  await expect(page.getByText('Unsaved changes')).toBeVisible();
+  expect(unexpectedDialogs).toEqual([]);
+  page.off('dialog', dismissUnexpected);
+  page.once('dialog', dialog => dialog.dismiss());
+  await page.locator('.finding-card').nth(1).click();
+  await expect(page.getByLabel('Review note', { exact: true })).toHaveValue('Draft: check source take before confirming.');
+  await page.locator('.evidence-panel').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `docs/overnight-screenshots/review-draft-${width}.png`, fullPage: true });
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('.finding-card').nth(1).click();
+  await expect(page.getByLabel('Review outcome')).toHaveValue('unreviewed');
+  await expect(page.getByLabel('Review note', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Share this review with remote continuity memory (optional).')).not.toBeChecked();
+  await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+  expect(mock.requests.filter(request => request.url === '/api/video/reviews')).toEqual([]);
+  expect(mock.external).toEqual([]);
+ });
+}
+
 test('rejects MIME and oversized video before upload', async ({ page }) => {
  const mock = await mockApi(page); await page.goto('/');
  await page.getByLabel('Upload video', { exact: true }).setInputFiles({ name: 'not-video.txt', mimeType: 'text/plain', buffer: Buffer.from('no') });

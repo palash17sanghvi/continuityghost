@@ -123,11 +123,12 @@ export default function Studio() {
   finally { if (!controller.signal.aborted) { setBusy(null); request.current = null; } }
  }
  function selectFinding(id: string) {
-  if (busy || !analysis || !canLeave()) return;
+  if (busy || !analysis || (id !== activeId && !canLeave())) return;
   const next = analysis.findings.find(f => f.id === id)!;
   const pair = analysis.pairs.find(p => p.id === next.pairId)!;
   const candidate = analysis.frames.find(f => f.id === pair.candidateFrameId)!;
   setSeek(previous => ({ time: candidate.timeSeconds, nonce: (previous?.nonce || 0) + 1 }));
+  if (id === activeId) return;
   setActiveId(id); setReview({ status: next.status, note: next.note || "" }); setReviewConsent(false); setNotice("");
  }
  async function saveReview() {
