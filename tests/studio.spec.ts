@@ -227,6 +227,25 @@ test('rejects MIME and oversized video before upload', async ({ page }) => {
  expect(mock.requests.filter(r => r.url === '/api/video/analyze')).toHaveLength(0);
 });
 
+for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'mobile', width: 390, height: 844 }]) {
+ test(`${viewport.name} evidence timestamp brings the sought video back into view`, async ({ page }) => {
+  await page.setViewportSize(viewport);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const mock = await mockApi(page); await page.goto('/'); await analyze(page);
+  await page.getByRole('button', { name: 'Issue 1 at 00:10' }).click();
+  const jump = page.getByRole('button', { name: 'Jump to reference at 00:02' });
+  await jump.scrollIntoViewIfNeeded();
+  await expect(page.locator('video')).not.toBeInViewport();
+  await jump.focus(); await page.keyboard.press('Enter');
+  await expect(page.locator('video')).toBeInViewport({ ratio: 1 });
+  await expect(page.locator('video')).toBeFocused();
+  await expect.poll(() => page.locator('video').evaluate(v => (v as HTMLVideoElement).currentTime)).toBeCloseTo(2, 0);
+  await expect(page.getByRole('slider', { name: 'Video timeline' })).toHaveAttribute('aria-valuetext', '00:02 of 00:15');
+  await page.screenshot({ path: `docs/overnight-screenshots/evidence-return-${viewport.name}.png` });
+  expect(mock.external).toEqual([]);
+ });
+}
+
 test('mobile upload, markers and evidence have no horizontal overflow', async ({ page }) => {
  await page.setViewportSize({ width: 390, height: 844 }); await mockApi(page); await page.goto('/'); await analyze(page);
  await page.getByRole('button', { name: 'Issue 1 at 00:10' }).click();

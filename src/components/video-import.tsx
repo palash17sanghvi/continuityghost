@@ -14,7 +14,11 @@ export default function VideoImport({ disabled, clip, analysis, activeId, seek, 
  const player = useRef<HTMLVideoElement>(null);
  useEffect(() => {
   const video = player.current;
-  if (video && seek) { video.pause(); video.currentTime = seek.time; }
+  if (video && seek) {
+   video.pause(); video.currentTime = seek.time;
+   video.focus({ preventScroll: true });
+   video.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+  }
  }, [seek]);
  useEffect(() => {
   if (!clip) return;
