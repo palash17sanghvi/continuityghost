@@ -1,9 +1,10 @@
 import {z} from 'zod';
 import {saveReview} from '../../../lib/workflow';
+import {isSameOriginRequest} from '../../../lib/request-origin';
 export const runtime='nodejs';
 const schema=z.object({analysisId:z.string().uuid(),findingId:z.string().uuid(),projectId:z.string().trim().min(1).max(120),sceneId:z.string().trim().min(1).max(120),status:z.enum(['confirmed','dismissed','intentional']),note:z.string().trim().max(4000),consent:z.boolean()});
 export async function POST(request:Request){
- if(request.headers.get('origin') && request.headers.get('origin')!==new URL(request.url).origin)return Response.json({error:'Cross-origin review is not allowed.'},{status:403});
+ if(!isSameOriginRequest(request))return Response.json({error:'Cross-origin review is not allowed.'},{status:403});
  try{
   if(!request.headers.get('content-type')?.includes('application/json'))return Response.json({error:'Expected JSON review.'},{status:400});
   const reader=request.body?.getReader();if(!reader)return Response.json({error:'Missing review.'},{status:400});

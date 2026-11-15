@@ -1,9 +1,11 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
-import { analyzeImages, MAX_IMAGE_BYTES, responseSchema, validateImage } from '../../../lib/continuity';
+import { analyzeImages, MAX_IMAGE_BYTES, geminiResponseSchema, validateImage } from '../../../lib/continuity';
 import { randomUUID } from 'node:crypto';
 import {databaseEnabled,persistAnalysisFailure} from '../../../lib/database';
 import {loadMemory,saveAnalysis} from '../../../lib/workflow';
+import {classifyGeminiFailure,DEFAULT_GEMINI_MODEL} from '../../../lib/gemini';
+import {isSameOriginRequest} from '../../../lib/request-origin';
 
 export const runtime = 'nodejs';
 export const maxDuration = 90;
@@ -14,8 +16,7 @@ const error = (message:string,status:number)=>Response.json({error:message},{sta
 export async function POST(request:Request) {
   const deadline=Date.now()+80_000;
   const requestSignal=AbortSignal.any([request.signal,AbortSignal.timeout(80_000)]);
-  const url=new URL(request.url);
-  if (request.headers.get('origin') && request.headers.get('origin') !== url.origin) return error('Cross-origin analysis is not allowed.',403);
+  if (!isSameOriginRequest(request)) return error('Cross-origin analysis is not allowed.',403);
   if (!process.env.GEMINI_API_KEY) return error('Gemini is not configured. Add GEMINI_API_KEY to .env.local.',503);
   if (process.env.ALLOW_PAID_ANALYSIS !== 'true') return error('Paid analysis is disabled. Owner must approve before setting ALLOW_PAID_ANALYSIS=true.',403);
   const length = request.headers.get('content-length');
@@ -39,25 +40,32 @@ export async function POST(request:Request) {
   try {images=await Promise.all([validateImage(reference),validateImage(candidate)]);} catch(e){return error(e instanceof Error?e.message:'Invalid images.',400);}
   const startedAt=new Date();
   const memory=await loadMemory(parsed.data.projectId,parsed.data.sceneId,parsed.data.context || 'Approved continuity rules and intentional exceptions',form.get('memoryConsent')==='true');
+  let providerSignal:AbortSignal|undefined;
+  const progress:{phase:'provider'|'output'|'persistence'}={phase:'provider'};
   try {
-    const providerBudget=Math.min(45_000,deadline-Date.now()-22_000);
+    const providerBudget=Math.min(65_000,deadline-Date.now()-10_000);
     if(providerBudget<1000)return error('Request deadline reached before Gemini started. No analysis call was made.',408);
-    const providerSignal=AbortSignal.any([requestSignal,AbortSignal.timeout(providerBudget)]);
+    providerSignal=AbortSignal.any([requestSignal,AbortSignal.timeout(providerBudget)]);
     const { GEMINI_API_KEY: apiKey } = process.env;
-    const ai=new GoogleGenAI({apiKey,httpOptions:{timeout:providerBudget}});
+    const ai=new GoogleGenAI({apiKey,httpOptions:{timeout:providerBudget,retryOptions:{attempts:1}}});
     const result=await analyzeImages({...parsed.data,reference:images[0],candidate:images[1],memories:memory.facts},async parts=>{
-      const response=await ai.models.generateContent({model:process.env.GEMINI_MODEL || 'gemini-2.5-flash',contents:[{role:'user',parts}],config:{abortSignal:providerSignal,responseMimeType:'application/json',responseJsonSchema:z.toJSONSchema(responseSchema),maxOutputTokens:6000,temperature:0.2}});
+      const response=await ai.models.generateContent({model:process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,contents:[{role:'user',parts}],config:{abortSignal:providerSignal,responseMimeType:'application/json',responseJsonSchema:geminiResponseSchema,maxOutputTokens:6000}});
+      progress.phase='output';
       if (!response.text) throw new Error('Empty model response');
       return response.text;
     });
+    progress.phase='persistence';
     const persistence=await saveAnalysis(result,startedAt);
     return Response.json({...result,memory,persistence},{headers:{'Cache-Control':'no-store'}});
-  } catch {
+  } catch (failure) {
     if(databaseEnabled()){
       try{await persistAnalysisFailure({analysisId:randomUUID(),projectId:parsed.data.projectId,sceneId:parsed.data.sceneId},startedAt,'Gemini request or structured output failed.');}
       catch{/* Do not mask original provider failure with an event-write failure. */}
     }
     // Provider errors may contain submitted data; never expose/log raw exceptions.
-    return error('Gemini analysis failed or returned invalid findings. Check model access, quota and configuration before retrying; requests may incur charges.',502);
+    const classified=classifyGeminiFailure(failure,{timedOut:progress.phase==='provider' && providerSignal?.aborted,invalidOutput:progress.phase==='output'});
+    // Fixed labels only: never log exceptions, provider bodies, images or context.
+    console.warn('Gemini analysis failure',{code:classified.code,phase:progress.phase,elapsedMs:Date.now()-startedAt.getTime()});
+    return Response.json({error:classified.message,code:classified.code},{status:classified.status,headers:{'Cache-Control':'no-store'}});
   }
 }

@@ -13,6 +13,15 @@ const findingSchema = z.object({
   suggestedAction: evidence,
 });
 export const responseSchema = z.object({summary: evidence, findings: z.array(findingSchema).max(30)});
+// Keep generation grammar small; enforce length/item limits on returned output.
+export const geminiResponseSchema = z.toJSONSchema(z.object({
+  summary:z.string(),
+  findings:z.array(z.object({
+    category:findingSchema.shape.category,
+    description:z.string(),referenceEvidence:z.string(),candidateEvidence:z.string(),
+    uncertainty:z.string(),suggestedAction:z.string(),
+  })),
+}));
 export type ImageInput = { mimeType: string; data: string };
 export type AnalysisInput = {projectId:string;sceneId:string;context:string;reference:ImageInput;candidate:ImageInput;memories?:Array<{id:string;content:string}>};
 

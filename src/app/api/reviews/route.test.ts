@@ -6,6 +6,15 @@ const payload={analysisId:'00000000-0000-4000-8000-000000000001',findingId:'0000
 const req=(value:unknown=payload,origin='http://localhost:3000')=>new Request('http://localhost:3000/api/reviews',{method:'POST',headers:{'content-type':'application/json',origin},body:JSON.stringify(value)});
 beforeEach(()=>vi.resetAllMocks());
 describe('review HTTP boundary',()=>{
+ it('accepts the original loopback Host when Next normalizes the URL',async()=>{
+  save.mockResolvedValue({persisted:true,memory:{status:'disabled'}});
+  const request=new Request('http://localhost:3000/api/reviews',{method:'POST',headers:{'content-type':'application/json',host:'127.0.0.1:3000',origin:'http://127.0.0.1:3000'},body:JSON.stringify(payload)});
+  expect((await POST(request)).status).toBe(200);expect(save).toHaveBeenCalledTimes(1);
+ });
+ it('rejects a localhost origin when the original Host is 127.0.0.1',async()=>{
+  const request=new Request('http://localhost:3000/api/reviews',{method:'POST',headers:{'content-type':'application/json',host:'127.0.0.1:3000',origin:'http://localhost:3000'},body:JSON.stringify(payload)});
+  expect((await POST(request)).status).toBe(403);expect(save).not.toHaveBeenCalled();
+ });
  it('rejects cross origin without storing',async()=>{expect((await POST(req(payload,'https://other.test'))).status).toBe(403);expect(save).not.toHaveBeenCalled();});
  it('rejects invalid status and missing consent field',async()=>{expect((await POST(req({...payload,status:'approved'}))).status).toBe(400);expect((await POST(req({...payload,consent:undefined}))).status).toBe(400);});
  it('returns persisted decision with honest pending memory state',async()=>{save.mockResolvedValue({persisted:true,memory:{status:'queued'}});const response=await POST(req());expect(response.status).toBe(200);expect(await response.json()).toEqual({persisted:true,memory:{status:'queued'}});});

@@ -1,0 +1,10 @@
+{
+  "description": "Streamlines team handoffs by organizing essential updates, tasks, and context so colleagues can continue work smoothly.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -36,6 +36,7 @@ class ConfigureGeminiTests(unittest.TestCase):
         self.run_setup()
         self.assertIn('GEMINI_API_KEY=offline-fixture-key\n', self.target.read_text())
         self.assertIn('ALLOW_PAID_ANALYSIS=false\n', self.target.read_text())
+        self.assertIn('GEMINI_MODEL=gemini-3.6-flash\n', self.target.read_text())
         if os.name == 'posix':
             self.assertEqual(stat.S_IMODE(self.target.stat().st_mode), 0o600)
 
@@ -45,6 +46,15 @@ class ConfigureGeminiTests(unittest.TestCase):
             runpy.run_path(str(self.script), run_name='__main__')
         prompt.assert_not_called()
         self.assertEqual(self.target.read_text(), 'existing-fixture')
+
+    def test_existing_env_is_not_shadowed_or_read(self):
+        existing = self.root / '.env'
+        existing.write_text('existing-private-fixture')
+        with patch('getpass.getpass') as prompt, self.assertRaises(SystemExit):
+            runpy.run_path(str(self.script), run_name='__main__')
+        prompt.assert_not_called()
+        self.assertEqual(existing.read_text(), 'existing-private-fixture')
+        self.assertFalse(self.target.exists())
 
     def test_file_created_after_precheck_is_not_overwritten(self):
         def raced_prompt(_):
@@ -63,7 +73,7 @@ class ConfigureGeminiTests(unittest.TestCase):
         self.assertFalse(other.exists())
 
     def test_invalid_key_creates_no_file(self):
-        for key in ['', 'two words', 'line\nbreak']:
+        for key in ['', 'two words', 'line\nbreak', 'key#comment', 'key$expand', 'key\\escape', 'key"quote', "key'quote", 'key`tick', 'key\x00control']:
             with self.subTest(case=bool(key)), self.assertRaises(SystemExit):
                 self.run_setup(key)
             self.assertFalse(self.target.exists())

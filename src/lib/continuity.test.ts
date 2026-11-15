@@ -1,8 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import sharp from 'sharp';
-import { validateImage, parseFindings, analyzeImages, MAX_IMAGE_BYTES } from './continuity';
+import { validateImage, parseFindings, analyzeImages, MAX_IMAGE_BYTES, geminiResponseSchema } from './continuity';
 
 const finding = {category:'props',description:'Cup missing',referenceEvidence:'Cup on table',candidateEvidence:'Table visible without cup',uncertainty:'Could have been removed during action',suggestedAction:'Check script'};
+describe('Gemini generation grammar and strict output validation',()=>{
+  it('omits costly grammar bounds while preserving required fields and categories',()=>{
+    const schema=JSON.stringify(geminiResponseSchema);
+    for(const keyword of ['maxItems','minLength','maxLength'])expect(schema).not.toContain(keyword);
+    expect(schema).toContain('referenceEvidence');expect(schema).toContain('wardrobe');
+  });
+  it('still rejects too many findings, empty evidence and oversized evidence locally',()=>{
+    expect(()=>parseFindings(JSON.stringify({summary:'Comparison',findings:Array.from({length:31},()=>finding)}))).toThrow();
+    for(const description of ['', 'x'.repeat(3001)])expect(()=>parseFindings(JSON.stringify({summary:'Comparison',findings:[{...finding,description}]}))).toThrow();
+  });
+});
 describe('image trust boundary', () => {
   it.each(['jpeg','webp'] as const)('accepts real %s bytes',async format=>{const b=await sharp({create:{width:4,height:4,channels:3,background:'#fff'}}).toFormat(format).toBuffer();expect((await validateImage(new File([b],`frame.${format}`,{type:`image/${format}`}))).mimeType).toBe('image/jpeg');});
   it('rejects empty images',async()=>{await expect(validateImage(new File([],'empty.png',{type:'image/png'}))).rejects.toThrow();});

@@ -4,7 +4,7 @@ Local film-continuity review prototype: compare a reference still with a candida
 
 ## Status and limits
 
-- Gemini request path is implemented; real provider success is **not verified**. Tests use mocks, not real AI results. A missing key or approval must block analysis, never return invented findings.
+- Gemini is **live verified** with `gemini-3.6-flash`: local video → captured frames → HTTP 200 in 19.6 seconds → missing-watch finding. Automated tests mock provider calls; missing keys or approval still block analysis.
 - Supermemory v5 scene-scoped retrieval/decision ingestion and PostgreSQL persistence/analytics are implemented behind disabled-by-default service flags. Live sponsor success is **not verified**. See [memory setup](docs/MEMORY.md) and [database setup](docs/DATABASE.md).
 - Reviews are local until explicitly saved with a configured database. Supermemory sharing requires separate consent. Reloading can lose unsaved work; JSON exports remain available. Project/scene partitioning is not user authentication.
 - No media is persisted by the application. Approved analysis sends normalized images and supplied context to Google; application non-persistence is not a claim about provider retention.
@@ -39,7 +39,7 @@ if any(c in key for c in '\r\n\x00\'"#$\\'):
     raise SystemExit('Unexpected key characters; no file written.')
 text = '\n'.join([
     f'GEMINI_API_KEY={key}',
-    'GEMINI_MODEL=gemini-2.5-flash',
+    'GEMINI_MODEL=gemini-3.6-flash',
     'SUPERMEMORY_API_KEY=',
     'DATABASE_URL=',
     'ALLOW_PAID_ANALYSIS=false',
@@ -54,7 +54,7 @@ PY
 
 Before any live call, the owner must approve potential costs and privately change server `ALLOW_PAID_ANALYSIS=true`, then restart the server. The browser must also explicitly approve **both** potential API cost and transmission of images/context. Neither checkbox substitutes for server approval; server approval does not substitute for browser consent. Do not pre-check consent. Missing any gate means no provider call. Failed requests may still incur provider charges; do not retry blindly.
 
-`SUPERMEMORY_API_KEY` and `DATABASE_URL` are reserved for future work; leave blank. Never prefix server secrets with `NEXT_PUBLIC_`.
+Supermemory and PostgreSQL are optional integrations, disabled until separately configured and approved. Never prefix server secrets with `NEXT_PUBLIC_`.
 
 ## Upload contract
 
@@ -78,4 +78,6 @@ Gemini supports multiple images in one prompt; this is the intended provider mec
 - [Demo](docs/DEMO.md): honest local demo, consent gates, mocked-vs-live distinction.
 - [Sponsors and compatibility research](docs/SPONSORS.md): official citations, API-version caveats, export research.
 
-Next action: run `npm run dev -- --hostname 127.0.0.1` and inspect the local upload screen without enabling paid analysis.
+## Integrated frontend
+
+Imported Figma design runs in the existing Next.js app; original export is untouched. Local video import/playback/seeking/capture, still uploads, side-by-side/overlay, Gemini findings, review, session Projects/Scenes and JSON export work. Only two selected stills are sent, not the video. No automatic full-video scan or durable media/project library; export before reload.
