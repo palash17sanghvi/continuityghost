@@ -23,7 +23,17 @@ Progress must be recorded below with concrete tests, screenshots, decisions and 
 - Installed independent dependencies (no shared node_modules/.next).
 - Added fail-closed schedule guard; no application API or service changes.
 - Verification: 227 unit/integration tests, 13 offline browser tests, ESLint, typecheck and production build passed. Playwright uses isolated port 3200; no credentials copied and all service gates disabled.
-- Commit: pending; subsequent pass resolves hash with `git log`.
+- Setup commit: `331a20d` (verified from git log; pushed before pass 1).
+
+### Pass 1 / evidence-to-video navigation
+
+- Added reference/candidate timestamp buttons beneath evidence, preserving sampled-frame/shot labels. Pointer and keyboard activation seek actual video without changing review drafts.
+- Timeline markers now have 44px targets, selected styling and `aria-pressed`; scrubber announces formatted elapsed/total time. No backend/provider/contract changes.
+- Final verification: `npm test` **227 passed**; `npm run lint`, `npm run typecheck`, `npm run build` exit 0; `npm run test:e2e` **13 passed**, including 2s/10s seeking, keyboard activation, persistence and mobile overflow checks. Initial test-only TypeScript casts and incorrect initial-selection assertion were corrected before the final passing run.
+- Visually inspected `docs/overnight-screenshots/evidence-navigation-desktop.png` and `docs/overnight-screenshots/evidence-navigation-mobile.png`. These show explicitly offline test fixtures, not model results. Evidence buttons fit mobile. Full-page captures show workspace bar crossing video: investigate actual sticky viewport behavior next pass. Closely spaced timeline markers remain follow-up.
+- Impeccable source detector: three pre-existing findings (Inter and navigation accent borders); retained incumbent design. Source scan does not assess runtime contrast.
+- Demo: select a finding, compare sampled images, use Reference/Candidate to inspect surrounding video, then save review. No live-provider verification, merge or deployment.
+- Test server on port 3200 stopped (connection refused). Original audit checkout untouched. This pass commit hash can be resolved from git log next pass.
 
 ## Registered schedule
 

@@ -4,8 +4,8 @@ import { Film, Upload } from "lucide-react";
 import { formatTime, mediaUrl } from "@/lib/client-analysis";
 import type { VideoAnalysis } from "@/lib/video-contract";
 
-type Props = { disabled: boolean; clip: File | null; analysis: VideoAnalysis | null; seek: { time: number; nonce: number } | null; onFile: (file: File | null) => boolean; onReady: (ready: boolean) => void; onFinding: (id: string) => void };
-export default function VideoImport({ disabled, clip, analysis, seek, onFile, onReady, onFinding }: Props) {
+type Props = { disabled: boolean; clip: File | null; analysis: VideoAnalysis | null; activeId: string | null; seek: { time: number; nonce: number } | null; onFile: (file: File | null) => boolean; onReady: (ready: boolean) => void; onFinding: (id: string) => void };
+export default function VideoImport({ disabled, clip, analysis, activeId, seek, onFile, onReady, onFinding }: Props) {
  const [preview, setPreview] = useState("");
  const [time, setTime] = useState(0);
  const [duration, setDuration] = useState(0);
@@ -40,11 +40,11 @@ export default function VideoImport({ disabled, clip, analysis, seek, onFile, on
   <header><div><small>01 / SOURCE CLIP</small><h2><Film size={18} /> {analysis?.clipName || clip?.name || "One clip. Automatic comparisons."}</h2></div><button className="secondary" disabled={disabled} onClick={() => input.current?.click()}><Upload size={15} /> {clip || analysis ? "Replace video" : "Upload video"}</button></header>
   <input ref={input} aria-label="Upload video" type="file" accept="video/mp4,video/webm,video/quicktime" hidden disabled={disabled} onChange={e => { choose(e.target.files?.[0]); e.target.value = ""; }} />
   {src ? <video key={src} ref={player} src={src} controls playsInline preload="metadata" aria-label="Continuity video player" onLoadedMetadata={metadata} onDurationChange={metadata} onTimeUpdate={() => { const video = player.current; if (!video) return; setTime(video.currentTime); }} onError={() => { onReady(false); setError("Video could not be played. Try a browser-supported MP4 or WebM, or reopen stored analysis."); }} /> : <div className="video-empty"><Film size={40} /><h3>Upload a scene to begin</h3><p>15–60 seconds · up to 64 MiB · MP4 / WebM / MOV</p><p>Selection stays in this browser. Nothing uploads until Analyze Continuity.</p></div>}
-  <div className="video-transport"><span>{formatTime(time)}</span><input type="range" aria-label="Video timeline" min={0} max={analysis?.duration || duration || 1} step="0.01" value={Math.min(time, analysis?.duration || duration || 1)} disabled={!src || !(duration || analysis?.duration)} onChange={e => { if (player.current) { player.current.currentTime = Number(e.target.value); setTime(Number(e.target.value)); } }} /><span>{formatTime(analysis?.duration || duration)}</span></div>
-  {analysis && <div className="issue-timeline" aria-label="Timestamped issue markers">{analysis.findings.map((finding, index) => {
+  <div className="video-transport"><span>{formatTime(time)}</span><input type="range" aria-label="Video timeline" aria-valuetext={`${formatTime(time)} of ${formatTime(analysis?.duration || duration)}`} min={0} max={analysis?.duration || duration || 1} step="0.01" value={Math.min(time, analysis?.duration || duration || 1)} disabled={!src || !(duration || analysis?.duration)} onChange={e => { if (player.current) { player.current.currentTime = Number(e.target.value); setTime(Number(e.target.value)); } }} /><span>{formatTime(analysis?.duration || duration)}</span></div>
+  {analysis && <div className="issue-timeline" role="group" aria-label="Timestamped issue markers">{analysis.findings.map((finding, index) => {
    const pair = analysis.pairs.find(p => p.id === finding.pairId)!;
    const frame = analysis.frames.find(f => f.id === pair.candidateFrameId)!;
-   return <button key={finding.id} style={{ left: `${Math.max(3, Math.min(97, frame.timeSeconds / analysis.duration * 100))}%` }} aria-label={`Issue ${index + 1} at ${formatTime(frame.timeSeconds)}`} title={finding.description} onClick={() => onFinding(finding.id)}>{index + 1}<small>{formatTime(frame.timeSeconds)}</small></button>;
+   return <button key={finding.id} aria-pressed={activeId === finding.id} className={activeId === finding.id ? "active" : ""} style={{ left: `${Math.max(3, Math.min(97, frame.timeSeconds / analysis.duration * 100))}%` }} aria-label={`Issue ${index + 1} at ${formatTime(frame.timeSeconds)}`} title={finding.description} onClick={() => onFinding(finding.id)}>{index + 1}<small>{formatTime(frame.timeSeconds)}</small></button>;
   })}</div>}
   {error && <p role="alert" className="error">{error}</p>}
  </section>;
