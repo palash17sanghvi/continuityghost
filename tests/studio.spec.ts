@@ -90,6 +90,12 @@ async function analyze(page: Page) {
 
 test('one browser-generated video, one action, scoped multipart, timestamp evidence and persisted review reload', async ({ page }) => {
  const mock = await mockApi(page); await page.goto('/');
+ const layout = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('.consent-stack .consent')].map(row => row.getBoundingClientRect());
+  const logo = document.querySelector('.brand-mark')!;
+  return { separateRows: rows.every((row, i) => !i || row.top >= rows[i - 1].bottom), logoDisplay: getComputedStyle(logo).display, decorationDisplay: getComputedStyle(logo.querySelector('span')!).display };
+ });
+ expect(layout).toEqual({ separateRows: true, logoDisplay: 'grid', decorationDisplay: 'none' });
  await upload(page);
  expect(mock.requests.filter(r => r.url === '/api/video/analyze')).toHaveLength(0);
  await expect(page.getByRole('button', { name: 'Analyze Continuity', exact: true })).toBeDisabled();
