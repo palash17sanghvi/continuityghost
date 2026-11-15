@@ -1,0 +1,42 @@
+import {afterAll,beforeAll,describe,expect,it,vi} from 'vitest';
+import {mkdtemp,mkdir,readFile,rm,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {PGlite} from '@electric-sql/pglite';
+import type {VideoRecord} from './video-contract';
+const boundary=vi.hoisted(()=>({query:vi.fn()}));
+vi.mock('pg',()=>({Pool:class{async connect(){return{query:boundary.query,release(){}};}async end(){}}}));
+import {saveVideo,getVideo,listVideos,reviewVideo,loadVideoRules} from './video-store';
+const db=new PGlite();
+let root:string;
+const record:VideoRecord={analysisId:randomUUID(),projectId:'video-pg-project',sceneId:'video-scene',clipName:'offline-fixture.mp4',mimeType:'video/mp4',duration:15,createdAt:new Date().toISOString(),summary:'Offline provider fixture; no live detection.',frames:[{id:'frame-000',timeSeconds:0,shotId:0},{id:'frame-001',timeSeconds:8,shotId:1}],pairs:[{id:'pair-000',referenceFrameId:'frame-000',candidateFrameId:'frame-001',score:0.9}],findings:[{id:randomUUID(),pairId:'pair-000',category:'wardrobe',description:'Fixture watch difference',referenceEvidence:'Watch visible',candidateEvidence:'Watch absent',uncertainty:'Fixture only',suggestedAction:'Human review',status:'unreviewed'}]};
+beforeAll(async()=>{
+ root=await mkdtemp(path.join(tmpdir(),'cg-pglite-video-'));
+ vi.stubEnv('CONTINUITY_DATA_DIR',path.join(root,'data'));vi.stubEnv('DATABASE_URL','postgres://localhost/offline-pglite-only');vi.stubEnv('ALLOW_DATABASE','true');vi.stubEnv('ALLOW_SUPERMEMORY','false');
+ boundary.query.mockImplementation((sql:string,params?:unknown[])=>db.query(sql,params));
+ for(const name of ['001_initial.sql','002_active_rules.sql','003_video.sql'])await db.exec(await readFile(new URL(`../../migrations/${name}`,import.meta.url),'utf8'));
+},30000);
+afterAll(async()=>{await db.close();await rm(root,{recursive:true,force:true});vi.unstubAllEnvs();});
+describe('video SQL persistence in disposable PGlite, NOT live Tiger Data',()=>{
+ it('migrates and stores scoped media metadata, review history and approved rules',async()=>{
+  const source=path.join(root,'source');await mkdir(source);
+  for(const f of ['clip','frame-000.jpg','frame-001.jpg'])await writeFile(path.join(source,f),'offline media fixture');
+  expect(await saveVideo(record,source)).toEqual({mode:'postgres'});
+  expect((await getVideo(record.analysisId))?.duration).toBe(15);
+  expect(await listVideos(record.projectId,record.sceneId)).toHaveLength(1);
+  expect(await listVideos('another-project',record.sceneId)).toEqual([]);
+  const input={analysisId:record.analysisId,findingId:record.findings[0].id,projectId:record.projectId,sceneId:record.sceneId,status:'confirmed' as const,note:'Fixture approved after review.',consent:false};
+  expect(await reviewVideo(input)).toMatchObject({persisted:true,persistence:{mode:'postgres'}});
+  expect((await loadVideoRules(record.projectId,record.sceneId,'watch',false)).facts).toHaveLength(1);
+  expect((await loadVideoRules('another-project',record.sceneId,'watch',false)).facts).toEqual([]);
+  await expect(reviewVideo({...input,sceneId:'wrong-scene'})).rejects.toThrow();
+  await reviewVideo({...input,status:'dismissed'});
+  expect((await loadVideoRules(record.projectId,record.sceneId,'watch',false)).facts).toEqual([]);
+  const rows=await db.query<{status:string;created_at:Date}>('SELECT status,created_at FROM video_review_decisions WHERE analysis_id=$1 ORDER BY revision',[record.analysisId]);
+  expect(rows.rows.map(row=>row.status)).toEqual(['confirmed','dismissed']);
+  expect(rows.rows.every(row=>row.created_at)).toBe(true);
+  await rm(path.join(root,'data','videos',record.analysisId,'analysis.json'));
+  expect((await getVideo(record.analysisId))?.findings[0].status).toBe('dismissed');
+ });
+});

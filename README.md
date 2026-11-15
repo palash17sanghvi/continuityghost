@@ -1,13 +1,13 @@
 # ContinuityGhost
 
-Local film-continuity review prototype: compare a reference still with a candidate still using Gemini, then let a human review potential differences. Immediate milestone: **two images → evidence-backed findings → session-only review/export**.
+Automatic video continuity analyzer for SunHacks: **one video → automatic keyframes/comparisons → timestamped evidence → human review → reload-safe decisions**. See [automatic workflow, limits and approval boundaries](docs/AUTOMATIC-VIDEO.md). Requires FFmpeg and ffprobe on PATH. Primary flow never requires manual frame selection.
 
 ## Status and limits
 
-- Gemini is **live verified** with `gemini-3.6-flash`: local video → captured frames → HTTP 200 in 19.6 seconds → missing-watch finding. Automated tests mock provider calls; missing keys or approval still block analysis.
-- Supermemory v5 scene-scoped retrieval/decision ingestion and PostgreSQL persistence/analytics are implemented behind disabled-by-default service flags. Live sponsor success is **not verified**. See [memory setup](docs/MEMORY.md) and [database setup](docs/DATABASE.md).
-- Reviews are local until explicitly saved with a configured database. Supermemory sharing requires separate consent. Reloading can lose unsaved work; JSON exports remain available. Project/scene partitioning is not user authentication.
-- No media is persisted by the application. Approved analysis sends normalized images and supplied context to Google; application non-persistence is not a claim about provider retention.
+- Automatic video pipeline is **live verified** with `gemini-3.6-flash`: one 15-second video → 30 frames / three visual shot groups → automatic 0-to-9-second comparison → missing watch finding, HTTP 200 in 11.901 seconds. One owner-approved Gemini call; review, reload and JSON export verified against real local storage. Automated tests still mock provider calls. Missing keys or approval block analysis.
+- Supermemory and Tiger Data are enabled and **live verified**: approved memory ingested/recalled; all three SQL migrations applied; real video metadata, finding and review history saved/read back from Tiger Data. Per-request memory consent remains required. Owner-approved hackathon database connection uses encrypted TLS 1.3 with certificate verification skipped for this database URL only; restore verified TLS before production. Media files remain local. See [memory setup](docs/MEMORY.md) and [database setup](docs/DATABASE.md).
+- Video analyses, evidence media and saved decisions persist on the local application server for reload support. PostgreSQL/Tiger Data is optional; local fallback is clearly labeled, never presented as live Tiger. Supermemory sharing requires separate consent. Project/scene partitioning is not user authentication.
+- Only automatically selected frames and approved context/rules are sent to Google, not the full video. Obtain permission for footage; provider retention is separate from application storage.
 - **Local only. No authentication. Do not deploy publicly or expose through tunnels.** Same-origin checks are not authentication.
 
 ## Run locally
@@ -80,4 +80,4 @@ Gemini supports multiple images in one prompt; this is the intended provider mec
 
 ## Integrated frontend
 
-Imported Figma design runs in the existing Next.js app; original export is untouched. Local video import/playback/seeking/capture, still uploads, side-by-side/overlay, Gemini findings, review, session Projects/Scenes and JSON export work. Only two selected stills are sent, not the video. No automatic full-video scan or durable media/project library; export before reload.
+Imported Figma design runs in the existing Next.js app; original export is untouched. Primary workflow accepts one 15–60-second MP4/WebM/MOV, extracts evidence and selects comparisons automatically. Findings link to real sample timestamps and supporting frames; saved decisions survive reload. Heuristic sampling is not exhaustive video understanding. Earlier live two-frame success does not verify this new automatic pipeline; offline tests do not claim genuine AI detection. Fresh explicit approval is required for live Gemini/Supermemory/Tiger Data tests. Legacy still API remains reusable internally.

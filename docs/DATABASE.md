@@ -10,7 +10,13 @@ Install dependencies through the application owner (`pg`, `@types/pg`, `tsx`). C
 ALLOW_DATABASE=true DATABASE_URL='postgresql://localhost/disposable_continuityghost' npx tsx scripts/migrate.ts
 ```
 
-This is an example, **not a command run against any remote database during implementation**. The migration runner intentionally supports an operator-configured PostgreSQL/Tiger URL, so operators must verify the target first. Do not point tests at a production URL. TLS is controlled through the PostgreSQL connection string; do not disable certificate verification as a workaround.
+This is a disposable example. The migration runner intentionally supports an operator-configured PostgreSQL/Tiger URL, so operators must verify the target first. Do not point automated tests at a production URL. TLS is controlled through the PostgreSQL connection string; verified TLS remains the normal recommendation.
+
+### Current owner-approved hackathon setup
+
+After explicit approval to bypass certificate verification for this demo, the local Tiger Data URL uses `sslmode=no-verify`. The installed `pg-connection-string` implementation sets `rejectUnauthorized=false` for this connection only; encryption remains enabled. Live `pg_stat_ssl` confirmed TLS 1.3 (`TLS_AES_256_GCM_SHA384`). No global `NODE_TLS_REJECT_UNAUTHORIZED` override or TLS changes to Gemini/Supermemory were made. This is vulnerable to server impersonation and must not be carried into production; restore `sslmode=verify-full` with a trusted CA/publicly trusted server certificate afterward.
+
+Migrations `001_initial.sql`, `002_active_rules.sql` and `003_video.sql` were applied and read back from the real database. Existing synthetic analysis `42744539-1346-4efd-93fa-e1019cd83ab2` was saved through the application's review API, then queried directly in Tiger Data: 30 keyframes, one comparison, one confirmed finding, and three historical decisions. Application reload returned `persistence.mode=postgres`. Source video/JPEG bytes still live on the application server, not inside PostgreSQL. No new Gemini generation or Supermemory request was made for this database test.
 
 Migrations are sorted versioned SQL files. The runner opens one transaction, takes a fixed transaction-scoped advisory lock, creates `schema_migrations`, and records each file's SHA-256 checksum. Reruns skip unchanged applied files. Missing applied files or checksum drift fail and roll back the entire run. Do not edit applied migrations; add a new numbered migration. The SQL files themselves are not standalone idempotent scripts; the tracked runner supplies idempotency.
 

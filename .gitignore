@@ -25,6 +25,7 @@
 *.pem
 __pycache__/
 .demo-images/
+/.continuityghost/
 
 # debug
 npm-debug.log*

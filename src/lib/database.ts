@@ -18,6 +18,11 @@ export type StoredAnalysis = z.infer<typeof analysisSchema>;
 export type StoredReview = z.infer<typeof reviewSchema>;
 type Scope = z.infer<typeof scopeSchema>;
 
+/** Shared guarded transaction boundary for additive persistence modules; pool/TLS policy stays here. */
+export function databaseTransaction<T>(work: (client: PoolClient) => Promise<T>, readOnly = false): Promise<T> {
+  return transaction(work, readOnly);
+}
+
 export function databaseEnabled(): boolean {
   return process.env.ALLOW_DATABASE === 'true' && Boolean(process.env.DATABASE_URL?.trim());
 }
