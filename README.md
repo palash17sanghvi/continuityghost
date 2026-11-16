@@ -1,5 +1,7 @@
 # ContinuityGhost
 
+[![CI](https://github.com/palash17sanghvi/continuityghost/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/palash17sanghvi/continuityghost/actions/workflows/ci.yml)
+
 **AI-powered continuity review for filmmakers.**
 
 **Winner — Best Use of Gemini API | SunHacks 2026**
