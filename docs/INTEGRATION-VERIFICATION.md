@@ -1,54 +1,77 @@
-# Integration verification runbook
+# Integration verification: evidence and runbook
 
-## Actual status
+## Evidence labels and current audit boundary
 
-Live browser test succeeded with `gemini-3.6-flash`: synthetic video → frames captured at 0 and 1.5 seconds → HTTP 200 in 19.573 seconds → missing-watch finding, zero browser errors. Analysis ID: `2c26d2a7-fe56-4d82-a8b3-2b37771f054b`. Export was checked by replaying that recorded real response without another paid call; matching analysis ID and source-video timestamps were preserved. Owner approved paid analysis. `gemini-3.8-flash` metadata was valid but generation repeatedly timed out; configured/default model now uses live-verified 3.6.
+This documentation audit inspected source/tests/migrations and Git history through `e944f1b`. It made **no live provider calls, remote database connections, credential reads or TLS changes**. Source default is `gemini-3.6-flash` (`src/lib/gemini.ts`), not proof of the current private environment or future model availability.
 
-Automated provider tests mock HTTP/SDK boundaries. No live Gemini generation, Supermemory, Tiger Data, or Timescale success is claimed by these backend tests. PostgreSQL integration tests execute real SQL in disposable embedded PGlite, not Tiger Data. Application remains local-only, without authentication.
+Use these labels consistently:
 
-## Configure Gemini (owner, about 2 minutes)
+- **Implemented:** source path exists and was inspected; not proof a remote service currently works.
+- **Offline exercised:** actual local test execution, with external provider boundaries mocked and PostgreSQL SQL run in disposable embedded PGlite.
+- **Historical live record:** repository reports a previous owner-approved live run; not independently rerun during this audit.
+- **Proposed / not established:** future work or acceptance evidence missing. A recorded success in one service does not certify a combined flow or production readiness.
 
-1. Visit https://aistudio.google.com/apikey and create an API key for a project with Gemini access. Current official key guidance: https://ai.google.dev/gemini-api/docs/api-key. Newly issued authorization keys are preferred; unrestricted legacy standard keys are rejected.
-2. For a fresh configuration, run `npm run setup:gemini` from this repository. Hidden input writes `.env.local` mode 0600 and refuses overwrite. If `.env` already exists, the helper refuses to create a shadowing `.env.local`; edit existing settings locally instead. Next.js loads both formats, with `.env.local` taking precedence. Never paste secrets into chat. Model defaults to verified `gemini-3.8-flash`; key must have model/quota access. Key presence does not establish free usage or billing approval.
-3. Leave `ALLOW_PAID_ANALYSIS=false` until owner explicitly approves API usage. Do not enable Cloud billing automatically. Restart Next.js after environment edits.
+### Current offline receipt
 
-## Safe diagnostics
+In this audit, `npm test` (`vitest run src`) exited 0: **18 test files, 227 tests passed**, duration **11.09 seconds**. Process-level provider keys/database URL were removed and all service-enable flags were set false for invocation. Tests stub their own fixture credentials/flags and mock external SDK/fetch/`pg` boundaries; PGlite executes SQL in-process and FFmpeg fixtures exercise local media processing. No live Gemini, Supermemory, Tiger Data or Timescale acceptance follows from this result.
 
-`GET /api/health` reports configuration presence, selected model and service gates only. HTTP 200 does not validate credentials, model support, quota or generation. The server does not make paid calls from health checks.
+This individual receipt covers Vitest only. The complete portfolio pass separately ran lint, TypeScript, production build, browser E2E, and Python helper checks; see [the portfolio verification receipt](VERIFICATION.md). Older numerical receipts in project history are historical snapshots, not current totals. Browser regression tests in `tests/studio.spec.ts` intercept API responses; `playwright.config.ts` starts loopback with all service flags false. Do not run credential helpers, migrations, authenticated health checks or paid probes merely to reproduce offline tests.
 
-Use an authenticated `GET https://generativelanguage.googleapis.com/v1beta/models` metadata request to check a model before changing it. Load server environment through `@next/env`, send the key in `x-goog-api-key`, follow pagination, and print only model names and `supportedGenerationMethods`. Never print the key, full environment or raw provider errors. Metadata checks do not run `generateContent`.
+## Historical live evidence — not reverified here
 
-Analysis errors now return a fixed safe `error` plus `code`; raw provider messages and submitted data are never returned or logged:
+Records below come from [AUTOMATIC-VIDEO](AUTOMATIC-VIDEO.md), [DATABASE](DATABASE.md), [MEMORY](MEMORY.md) and the prior version of this runbook. They contain identifiers for traceability, not fabricated new execution receipts.
+
+| Recorded stage | Recorded evidence | Scope / limitation |
+| --- | --- | --- |
+| Earlier still-engine browser comparison | `gemini-3.6-flash`; captured frames at 0 and 1.5 seconds; HTTP 200 in 19.573 seconds; missing-watch finding; analysis `2c26d2a7-fe56-4d82-a8b3-2b37771f054b`; zero browser errors. | Earlier two-still path, not automatic frame selection. Export check replayed the recorded real response without another paid call; that replay was not new generation. |
+| Automatic video Gemini run | One synthetic 15-second geometric clip; 30 extracted frames, three visual groups, one selected pair at 0 and 9 seconds; HTTP 200 in 11.901 seconds; exactly one `gemini-3.6-flash` generation; missing-watch finding. Analysis `42744539-1346-4efd-93fa-e1019cd83ab2`; confirmed review saved locally, reopened after reload and exported; supporting JPEGs loaded, no browser errors. | Original synthetic fixture, not production-footage accuracy evaluation. PostgreSQL and Supermemory were disabled during this generation. |
+| Subsequent Supermemory add/recall | Same reviewed synthetic evidence shared with explicit consent. Write accepted queued; exact document GET reportedly returned HTTP 200 with matching scope/content and decision `7f385256-a439-49d0-9175-a8931ce841d9`. Semantic recall returned `ready` and hit `3495894f35f13a2e9c6cc2`; reconciliation returned canonical human-approved content. | Separate memory check with no Gemini generation or Tiger connection. Does not prove a later model changed interpretation because of memory. |
+| Subsequent Tiger Data persistence | Three migrations committed/read back; real review endpoint saved existing analysis `42744539-1346-4efd-93fa-e1019cd83ab2`; SQL reportedly confirmed 30 frames, one pair, one finding, three decisions and current confirmed status; reload returned `mode: postgres`. TLS 1.3 / `TLS_AES_256_GCM_SHA384` recorded. | Metadata/decisions remote, media local. Owner approved Tiger-only certificate-verification bypass. No new Gemini/Supermemory calls; no live Timescale hypertable/`time_bucket` evidence. |
+
+These individual records supersede blanket “Gemini blocked on credentials” and “no live sponsor success” statements. They do not establish current credentials/flags/service health, simultaneous three-provider E2E, memory-effectiveness before/after, deletion propagation, production authorization or independent award verification. Historical event/track research is in [SPONSORS](SPONSORS.md).
+
+### Historical failures retained as failures
+
+The prior runbook records a generic 502 after about 43.8 seconds; cause cannot be reconstructed, so it does not prove timeout or schema rejection. A separate one-attempt direct SDK probe with a 90-second timeout returned HTTP 504 after about 88.8 seconds before parsing: upstream timeout, not schema rejection. `gemini-3.8-flash` metadata was reportedly valid while generation repeatedly timed out; later 3.6 runs succeeded. Metadata validity alone is not generation acceptance. These were prior paid/approved actions, not permission to repeat them.
+
+## Implemented paths and safety gates
+
+Primary flow is `/api/video/analyze` → FFprobe/FFmpeg automatic extraction/selection → one Gemini request → durable local report/media plus optional PostgreSQL metadata. `/api/video/reviews`, `/api/video/history`, `/api/video/[analysisId]` and its `/media` route support review, reload and evidence. Legacy `/api/analyze`, `/api/reviews` and `/api/analytics` remain implemented internally; legacy analytics cover still/event tables, not all video activity.
+
+- Video route checks exact same-origin and rejects `Sec-Fetch-Site: cross-site`, disabled key/server gate before decoding, then bounds streamed multipart input and validates request consent/cost approval and actual media. Upload deadline is 30 seconds within a 110-second overall operation; provider budget is at most 65 seconds with finalization reserve. Legacy still request deadline is 80 seconds. SDK `retryOptions.attempts=1` forbids hidden generation retries.
+- Same-origin comparison uses validated original Host and request protocol because Next.js can normalize URL host to `localhost`; it does not trust `Forwarded`/`X-Forwarded-*` or equate `localhost` and `127.0.0.1`. This is CSRF defense, **not authentication**. No public/tunneled deployment.
+- JSON generation uses `responseMimeType: 'application/json'` and `responseJsonSchema`. Strict local parsing enforces evidence, sizes/counts and pair references. Generation grammar need not encode all local validation limits. No custom `temperature`, `topP` or `topK` is set. Mocks verify construction, not future provider schema compatibility.
+- Local video saves are durable on this server disk even with PostgreSQL off. PostgreSQL requires `ALLOW_DATABASE=true` and `DATABASE_URL`; local fallback is explicitly labeled. Remote-memory flag/key plus separate per-request consent gate optional Supermemory calls. Local/PostgreSQL approved rules can still enter subsequent Gemini context without remote-memory consent.
+- No provider messages, authorization headers, uploaded data or secrets belong in logs/exports. Classified errors must stay safe. Review save, remote database confirmation, queued memory ingestion and actual recalled provenance are distinct outcomes.
+
+### Safe errors and diagnostics
 
 | Code | HTTP | Owner action |
 | --- | --- | --- |
-| `GEMINI_AUTH` | 503 | Check key, API restrictions and project permissions. Includes HTTP 401/403 and structured `API_KEY_INVALID` errors. |
-| `GEMINI_MODEL` | 503 | HTTP 404: verify configured model against authenticated metadata. |
-| `GEMINI_QUOTA` | 429 | Check quota/rate limit and billing; do not enable billing without approval or auto-retry paid requests. |
-| `GEMINI_TIMEOUT` | 504 | Timeout, cancellation, or upstream HTTP 408/504; request may still incur costs. Obtain approval before retrying. |
-| `GEMINI_OUTPUT` | 502 | Empty/malformed structured findings after a provider response; no findings accepted. |
-| `GEMINI_REQUEST` | 502 | Other upstream HTTP 400; check request/model/schema compatibility. |
-| `GEMINI_FAILED` | 502 | Other provider failures or invalid findings; inspect configuration before another potentially paid request. |
+| `GEMINI_AUTH` | 503 | Check key restrictions/project permissions privately; includes 401/403 and structured `API_KEY_INVALID`. |
+| `GEMINI_MODEL` | 503 | Check configured model/access privately; metadata lookup requires separate external-call approval. |
+| `GEMINI_QUOTA` | 429 | Check quota/rate limit/billing; never enable billing or auto-retry without approval. |
+| `GEMINI_TIMEOUT` | 504 | Timeout/cancellation/upstream 408/504; request may still cost money. Ask before retry. |
+| `GEMINI_OUTPUT`, `GEMINI_REQUEST`, `GEMINI_FAILED` | 502 | Invalid/empty output, request incompatibility or other provider failure; no synthetic findings accepted. Inspect safe codes, not raw provider bodies. |
 
-Missing credentials still return 503; disabled server paid gate still returns 403 before generation. Per-request image-sharing consent, cost approval, same-origin checks and upload validation remain required. SDK requests use `responseJsonSchema` derived from the Zod `responseSchema`, with `responseMimeType: 'application/json'`; local parsing validates every response again. Mocks verify request shape, not live model schema support. Run only the owner-approved single generated-frame comparison to verify live acceptance; do not repeat automatically on failure.
+Video missing-key/disabled-gate errors use `ANALYSIS_DISABLED` / 503; legacy still missing key is 503 and disabled paid gate is 403. Do not assume both endpoints have identical status behavior. `GET /api/health` currently returns local configuration booleans and model name only; it performs no authenticated model lookup. The older `?checkModel=1` diagnostic described in prior docs is not implemented by the current handler and does not verify model metadata, generation or free quota. Any separate authenticated metadata probe still requires owner approval.
 
-Gemini 3.6+ ignores custom sampling parameters and may reject them in future; requests omit `temperature`, `topP` and `topK` per the [official troubleshooting guide](https://ai.google.dev/gemini-api/docs/troubleshooting). API, health, setup and example use live-verified `gemini-3.6-flash`. Generation grammar omits string/item limits to avoid upstream schema rejection; strict response validation still enforces nonempty evidence, 3000-character limits and at most 30 findings.
+## Future approved live walkthrough — instructions, not a receipt
 
-Provider work has a maximum 65-second budget within the existing 80-second request deadline, reserving 10 seconds for finalization if preparation used much of the deadline. SDK `httpOptions.retryOptions.attempts=1` explicitly prohibits hidden retries. Failure logs contain only fixed classification code, stage (`provider`, `output`, `persistence`) and elapsed milliseconds, never provider messages or uploaded data. The first owner-run smoke returned generic 502 after about 43.8 seconds before these diagnostics existed; its cause cannot be reconstructed from that response, so it does not establish a timeout or structured-output failure. A subsequent owner-run direct SDK probe with a 90-second timeout and one attempt returned `ApiError` HTTP 504 after about 88.8 seconds, before parsing. This establishes an upstream timeout on that probe, not a schema rejection. No HTTP(S)/ALL proxy or Gemini/Vertex base-URL override variables were configured during a safe presence-only check. No successful live generation is claimed here; further paid probes need owner approval.
+1. Obtain explicit owner approval for footage, each service/cost and database target. Configure credentials privately via [credential setup](CREDENTIAL-SETUP.md); never paste keys into chat. Source default is `gemini-3.6-flash`; key/model/quota access and an override are private runtime matters. Restart after environment edits. Existing credentials do not authorize calls or billing changes.
+2. Keep optional services off for a Gemini-only run. Use one approved 15–60-second MP4/WebM/MOV ≤64 MiB, stable project/scene IDs, context and explicit browser data/cost consent. Submit once; record actual model/outcome/analysis ID without footage or secrets. Failure/empty findings is honest; no auto-loop paid requests.
+3. Review supporting evidence, sampled timestamps and uncertainty; save one human decision without remote sharing first. Read exact saved report/history back after reload, distinguish `local` from `postgres`, and check export against that report. Unsaved drafts/export are not durable saves.
+4. Only if separately approved, enable Supermemory and consent to share a canonical human decision. Distinguish queued ingestion from exact-document readback and scoped recall. A further paid comparison with retrieval consent needs approval; document actual provenance and interpretation before claiming a memory-effectiveness result.
+5. Only if separately approved, verify database target privately, run `npm run db:migrate`, and read exact stored metadata/review back. Migrations write the configured database and do not run on startup. Use verified TLS. Legacy analytics `timeSeriesMode: timescale` plus real query/hypertable evidence is needed for that specific claim; ordinary `postgres` is fallback, not Timescale verification.
 
-Next.js can normalize `request.url` to `localhost` even when the browser uses `127.0.0.1`. Analysis and review routes therefore compare Origin against the validated original `Host` plus request URL protocol, falling back to URL authority when Host is absent. They do not trust `Forwarded` or `X-Forwarded-*` headers, and do not consider `localhost` and `127.0.0.1` interchangeable origins. This fixes false 403s without weakening foreign-origin rejection. Same-origin protection is not authentication; keep the server loopback-only.
+### TLS exception and migration discipline
 
-## Original test images
+Historical demo used explicit owner approval for **Tiger only** `sslmode=no-verify`, retaining encryption but setting `rejectUnauthorized=false`. This permits server impersonation; restore `sslmode=verify-full` with trusted CA/server certificate for production. Do not weaken Gemini/Supermemory TLS or use global `NODE_TLS_REJECT_UNAUTHORIZED`. This audit did not inspect/change current connection settings.
 
-Run `npm run demo:images`. Generated `.demo-images/reference.png` and `candidate.png` are original geometric restaurant illustrations (not footage, detected evidence, or AI output). Reference has silver watch; candidate does not. Images remain local until approved analysis. No network call occurs during generation.
+Migrations `001_initial.sql`, `002_active_rules.sql`, `003_video.sql` exist. Runner uses one transaction, advisory lock and checksum-tracked `schema_migrations`; unchanged reruns skip applied files and drift/missing files fail. Never edit applied migrations or run tests against production URLs. Embedded tests execute SQL but do not validate Tiger TLS, cloud availability or Timescale extension acceptance.
 
-## Approved live walkthrough (blocked until owner approval)
+## Offline fixture and regression references
 
-- Configure Gemini, Supermemory and Tiger Data credentials locally; approve each service's costs before setting its `ALLOW_*` flag. Database migrations modify the configured database: inspect URL locally and use only this project's dedicated database.
-- Run `npm run db:migrate` after database approval. No migration runs automatically on startup. Review [database docs](DATABASE.md) and [memory docs](MEMORY.md).
-- Upload originals with stable project and scene IDs. Approve Gemini disclosure/cost checkbox. First comparison needs no memory consent. Record actual findings; no particular finding is guaranteed.
-- If Gemini flags a supported difference, select intentional, note that watch removal was scripted, consent to Supermemory sharing, then Save decision. Confirm database-save status separately from asynchronous memory ingestion status. Do not call queued ingestion a successful retrieval.
-- Wait for ingestion; run later comparison with memory consent. Confirm retrieved decision is visible in provenance and assess whether actual model interpretation changes. Empty search is not evidence of successful ingestion; do not auto-loop paid requests.
-- Load project analytics. Check actual recorded analysis/review events and `timeSeriesMode`. Only `timescale` confirms the hypertable/time_bucket path; `postgres` is a transparent fallback.
+`npm run demo:images` generates original geometric reference/candidate stills (watch present/absent), not AI output. `npx tsx scripts/create-video-fixture.ts /absolute/native/path/watch-change.mp4` creates an original silent 15-second geometric clip with watch present 0–5 seconds, cutaway 5–8 seconds, then same view without watch. Generation is local; submitting it to Gemini is not. Historical extraction yielded 30 samples/three groups/0-to-9-second pair; do not present fixture geometry or selection as new model detection.
 
-Live acceptance is incomplete until all three sponsor services are exercised successfully with approved credentials and the real before/after findings and retrieved evidence are documented without secrets or private images.
+Relevant offline tests: `src/lib/video-extraction.test.ts`, `video-analysis.test.ts`, `video-workflow.integration.test.ts`, `video-store.test.ts`, `video-store.integration.test.ts`, `database.integration.test.ts`, memory/workflow tests and route tests. These cover real media processing/local saves/embedded SQL with mocked external boundaries. Browser regressions additionally cover player/timestamp navigation, long evidence, clustered markers, saved-history errors, draft preservation, preview retry and unsaved-leave warnings. Browser tests were not rerun in this receipt. See [architecture](ARCHITECTURE.md), [demo](DEMO.md) and [tasks](TASKS.md).

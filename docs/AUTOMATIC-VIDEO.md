@@ -1,5 +1,7 @@
 # Automatic video workflow
 
+> **Evidence boundary:** live-service/configuration statements below are historical owner-approved hackathon records, not current environment checks. This portfolio pass made no provider calls, database connections, migrations, or TLS changes. Current source and fresh offline checks are described in [architecture](ARCHITECTURE.md) and [verification](VERIFICATION.md).
+
 ## Product flow
 
 Upload one 15–60-second clip, enter its project/scene and approve analysis. Backend extracts timestamped evidence, selects frame pairs automatically and makes one Gemini request. No manual frame assignment is part of the primary workflow. Returned findings refer to real extracted frame/pair IDs; the application assigns timestamps from those frames, not model-generated timecodes.

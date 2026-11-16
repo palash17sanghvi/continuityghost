@@ -1,16 +1,22 @@
 # Supermemory v5 adapter
 
-`src/lib/memory.ts` is a server-only REST adapter using built-in `fetch`, Node SHA-256 and existing Zod. No SDK, new dependency, UI, orchestration or automatic provider calls are added.
+`src/lib/memory.ts` is a server-only REST adapter using built-in `fetch`, Node SHA-256 and existing Zod. The adapter uses no Supermemory SDK or extra dependency; UI consent and orchestration live in the callers. Provider traffic requires explicit gates.
+
+## Current workflow integration
+
+This page documents the shared server adapter; caller behavior differs by workflow. Automatic video uses `loadVideoRules` in `src/lib/video-store.ts`: canonical confirmed/intentional scene rules come from scoped local/PostgreSQL review history and can apply even without remote-memory consent. Consent gates external Supermemory retrieval/sharing, not reuse of local approved review decisions. Dismissed, superseded, or unreviewed findings do not become active canonical rules. Remote hits must reconcile to current canonical decision IDs; they are not independent truth. The older still-image workflow in `src/lib/workflow.ts` reconciles eligible recall against PostgreSQL and does not provide the video local-store semantics.
+
+Review sharing requires explicit consent; saved decisions are not automatically proof of remote ingestion, indexing, or later recall. Historical live observations are recorded separately in [automatic-video evidence](AUTOMATIC-VIDEO.md#verification-labels) and [the integration ledger](INTEGRATION-VERIFICATION.md); no live memory request was made in this portfolio pass.
 
 ## Public contracts
 
 ```ts
-type MemoryFact = { id: string; content: string; source: 'supermemory' };
+type MemoryFact = { id: string; content: string; source: 'supermemory'; decisionId?: string };
 
 memoryNamespace(projectId: string, sceneId: string): string;
 memoryEnabled(): boolean;
 rememberDecision(input: {
-  projectId: string; sceneId: string; id: string; content: string;
+  projectId: string; sceneId: string; id: string; decisionId: string; content: string;
 }): Promise<RememberDecisionResult>;
 retrieveMemories(input: {
   projectId: string; sceneId: string; query: string;
@@ -29,7 +35,7 @@ Call `rememberDecision` **only after explicit human approval** of the decision t
 
 Namespaces are `cg_` plus full SHA-256 of `JSON.stringify([projectId, sceneId])`: exact, ordered, unambiguous framing prevents concatenation/delimiter collisions. IDs are not trimmed, case-folded or Unicode-normalized. Empty/whitespace-only scopes are rejected; `memoryNamespace` throws a fixed error and async operations return unavailable before transmission. Cryptographic hashes have theoretical collision risk; no finite hash can honestly guarantee mathematical zero collisions. Document IDs are nonblank and at most 255 characters; content/query must be nonblank.
 
-Each namespace isolates one project+scene pair. Ingestion attaches `{source:'human_decision', scope: namespace}` metadata; search requires both via metadata filter, then checks both again on returned hits. Inferred or superseded results are excluded. A malformed hit rejects the whole response rather than accepting partial unvalidated facts. Metadata does not establish truth: returned memories are provider-derived recall of approved source documents, not new human approvals. Treat content as untrusted context, never executable instructions or authorization.
+Each namespace isolates one project+scene pair. Ingestion attaches `{source:'human_decision', scope: namespace, decisionId}` metadata; search requires both via metadata filter, then checks both again on returned hits. Inferred or superseded results are excluded. A malformed hit rejects the whole response rather than accepting partial unvalidated facts. Metadata does not establish truth: returned memories are provider-derived recall of approved source documents, not new human approvals. Treat content as untrusted context, never executable instructions or authorization.
 
 ## Official API shapes used
 
@@ -41,7 +47,7 @@ Reviewed official docs during implementation:
 
 Requests use bearer auth and JSON at `https://api.supermemory.ai/ns/{namespace}/document` and `/search`. **There is no `/v5` request-path prefix.** The `/v5/openapi` documentation URL is not the application API base.
 
-Ingestion uses `POST /ns/{namespace}/document`:
+Ingestion uses `POST /ns/{namespace}/document`; its document `id` is the input `decisionId` (the separate input `id` remains a fallback result identifier):
 
 ```json
 {
@@ -49,7 +55,7 @@ Ingestion uses `POST /ns/{namespace}/document`:
   "content": "Human approved: keep the red cup.",
   "taskType": "memory",
   "dreaming": "dynamic",
-  "metadata": {"source": "human_decision", "scope": "cg_<sha256>"}
+  "metadata": {"source": "human_decision", "scope": "cg_<sha256>", "decisionId": "decision-1"}
 }
 ```
 
