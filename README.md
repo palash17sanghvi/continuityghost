@@ -1,83 +1,156 @@
 # ContinuityGhost
 
-Automatic video continuity analyzer for SunHacks: **one video → automatic keyframes/comparisons → timestamped evidence → human review → reload-safe decisions**. See [automatic workflow, limits and approval boundaries](docs/AUTOMATIC-VIDEO.md). Requires FFmpeg and ffprobe on PATH. Primary flow never requires manual frame selection.
+**AI-powered continuity review for filmmakers.**
 
-## Status and limits
+**Winner — Best Use of Gemini API | SunHacks 2026**
 
-- Automatic video pipeline is **live verified** with `gemini-3.6-flash`: one 15-second video → 30 frames / three visual shot groups → automatic 0-to-9-second comparison → missing watch finding, HTTP 200 in 11.901 seconds. One owner-approved Gemini call; review, reload and JSON export verified against real local storage. Automated tests still mock provider calls. Missing keys or approval block analysis.
-- Supermemory and Tiger Data are enabled and **live verified**: approved memory ingested/recalled; all three SQL migrations applied; real video metadata, finding and review history saved/read back from Tiger Data. Per-request memory consent remains required. Owner-approved hackathon database connection uses encrypted TLS 1.3 with certificate verification skipped for this database URL only; restore verified TLS before production. Media files remain local. See [memory setup](docs/MEMORY.md) and [database setup](docs/DATABASE.md).
-- Video analyses, evidence media and saved decisions persist on the local application server for reload support. PostgreSQL/Tiger Data is optional; local fallback is clearly labeled, never presented as live Tiger. Supermemory sharing requires separate consent. Project/scene partitioning is not user authentication.
-- Only automatically selected frames and approved context/rules are sent to Google, not the full video. Obtain permission for footage; provider retention is separate from application storage.
-- **Local only. No authentication. Do not deploy publicly or expose through tunnels.** Same-origin checks are not authentication.
+Awarded November 15, 2026 · Built by a four-person team
+
+[**Watch Demo / Project Video →**](https://www.youtube.com/watch?v=6cv2eZ5ibYQ) · [Award & team](#sunhacks-2026-award) · [Architecture](docs/ARCHITECTURE.md) · [Run locally](#run-locally)
+
+Continuity mistakes can hide between takes: a watch disappears, a prop moves, or wardrobe changes. ContinuityGhost turns a short video into sampled frame comparisons, then uses Gemini to surface potential visual inconsistencies with timestamps and evidence. Filmmakers review each finding and decide whether it is an error, an intentional change, or insufficient evidence—not the model.
+
+## See the project
+
+[![Open the ContinuityGhost project video on YouTube](docs/assets/project-video-thumbnail.jpg)](https://www.youtube.com/watch?v=6cv2eZ5ibYQ)
+
+**[Watch the 2-minute project video](https://www.youtube.com/watch?v=6cv2eZ5ibYQ).** Supplied by the team; YouTube lists it as *Demo Video* by Johan Jagalur. Video metadata and availability were checked, but the full demonstration was not independently verified. The video is not evidence of live Gemini output.
+
+[![ContinuityGhost analysis studio showing a synthetic clip, a timestamped watch finding, comparison evidence, and human review controls](docs/assets/screenshots/analysis-studio-offline-fixture.jpg)](docs/assets/screenshots/analysis-studio-offline-fixture.jpg)
+
+[Open the app screenshot full-size](docs/assets/screenshots/analysis-studio-offline-fixture.jpg).
+
+*Actual application interface captured by the repository's Playwright suite using browser-generated video and mocked API responses. The watch finding is a labeled test fixture, not a live Gemini result. [Screenshot provenance](docs/assets/README.md).*
+
+## What it does
+
+| Capability | Implemented behavior |
+| --- | --- |
+| Automatic video analysis | Upload one 15–60-second MP4, WebM, or MOV, up to 64 MiB. FFmpeg samples frames; local heuristics select comparisons without manual frame picking. |
+| Semantic visual review | Gemini receives selected frame pairs plus approved context—not the full uploaded video—to suggest potential continuity issues. |
+| Traceable evidence | Findings link to sampled timestamps, reference/candidate images, uncertainty, and a suggested follow-up. |
+| Human decisions | Mark findings **confirmed**, **dismissed**, or **intentional**; add notes, revisit saved analyses, and export JSON. |
+| Durable review history | Server-local storage keeps video analyses, evidence, source media, and saved decisions across reloads. Optional PostgreSQL mirrors structured records and review history. |
+| Consent-based context | Optional Supermemory retrieval uses project/scene scope; eligible reviewed information can become reusable context only with the relevant consent. |
+
+The current interface centers on **automatic video review**. The earlier `POST /api/analyze` two-still-image endpoint remains available for explicit reference/candidate comparisons; it is not a required step in the video flow. See [API and processing details](docs/AUTOMATIC-VIDEO.md) and [architecture](docs/ARCHITECTURE.md).
+
+## How it works
+
+1. **Inspect locally.** Validate upload limits and permissions; ffprobe checks the media, and FFmpeg extracts at most 40 timestamped JPEG samples.
+2. **Choose evidence.** Visual descriptors group transitions and rank stable, comparable views. Select at most four pairs/eight unique images for one Gemini generation request.
+3. **Ask a bounded question.** Send only selected images, pair identifiers, approved context, and consented memory. Ask for evidence, alternative explanations, and uncertainty; zero findings is valid.
+4. **Validate and store.** Validate structured output and pair references before accepting findings. Save source media, extracted evidence, and results locally; optional database storage adds structured history.
+5. **Keep the reviewer in control.** Seek to evidence timestamps, inspect both frames, save decisions, and optionally share eligible reviewed context with Supermemory.
+
+## System architecture
+
+```mermaid
+flowchart TD
+    UI["Browser · Next.js / React studio"] -->|"Video + explicit upload and cost consent"| API["Local Node.js API routes"]
+    API --> GATE["Origin, size, configuration and cost gates"]
+    GATE --> FF["ffprobe + FFmpeg · inspect and sample"]
+    FF --> SELECT["Sharp descriptors · choose up to four pairs"]
+    SELECT --> GEM["Gemini · selected images + approved context"]
+    GEM --> VALIDATE["Zod + evidence-reference validation"]
+    VALIDATE --> LOCAL["Server-local records, media and frames"]
+    LOCAL -->|"Findings + timestamped evidence"| REVIEW["Human review · confirm / dismiss / intentional"]
+    UI --> REVIEW
+    REVIEW -->|"Save decisions"| LOCAL
+    VALIDATE -.->|"Optional structured persistence"| PG[("Tiger Data / PostgreSQL")]
+    REVIEW -.->|"Optional review events"| PG
+    MEM["Supermemory · optional scoped context"] -.->|"Enabled + request consent"| GEM
+    REVIEW -.->|"Eligible reviewed context + consent"| MEM
+```
+
+For a text-first walkthrough, see [How it works](#how-it-works) above or the [detailed architecture](docs/ARCHITECTURE.md).
+
+**Solid paths:** core local workflow. **Dashed paths:** separately enabled integrations. The browser and API run locally; Gemini and optional Supermemory/PostgreSQL are external services. Local storage is still required when PostgreSQL is enabled. [Storage boundaries and failure behavior](docs/DATABASE.md).
+
+## Engineering decisions
+
+- **Sample first, spend deliberately.** Bounded sampling and comparison selection keep evidence and provider work constrained. Ranking favors stable shot interiors and comparable revisited views rather than merely large pixel changes or long time gaps. Small local residuals help preserve accessory changes during deduplication. This is heuristic selection, not exhaustive scene understanding.
+- **Use semantic analysis, not pixel differences alone.** A pixel change may be lighting, motion, or a cut. Gemini can interpret objects and scene relationships in paired images; the prompt asks it to consider mirroring, occlusion, intentional action, and whether views are comparable. Model judgment can still be wrong.
+- **Treat findings as reviewable claims.** Pair identifiers tie findings to supplied evidence. Strict output validation rejects unsupported structure; qualitative uncertainty is not a calibrated probability. No automatic confirmation or invented bounding boxes.
+- **Separate records from memory.** Relational storage tracks analyses, findings, review events, and analytics. Supermemory retrieves approved contextual facts; it is not the source of truth for review history. Both are optional and have distinct failure/consent behavior.
+- **Make permission explicit.** Server cost approval and browser upload/cost consent are independent gates. Memory sharing has its own controls. Cancellation and provider failures do not guarantee a refund; retries require fresh approval.
+
+[Detection-quality rationale and regression cases](docs/DETECTION-QUALITY.md) · [Memory and consent model](docs/MEMORY.md)
+
+## Tech stack
+
+| Technology | Role in this repository |
+| --- | --- |
+| Next.js 16, React 19, TypeScript | App Router interface, Node.js API routes, typed evidence/review contracts |
+| Google Gemini API · `@google/genai` | One structured multimodal generation request over automatically selected images; configurable model, currently defaulting to `gemini-3.6-flash` |
+| FFmpeg / ffprobe | Local media probing, bounded frame extraction, timestamps |
+| Sharp | Image decoding/normalization and visual descriptors for sampling/comparison selection |
+| Zod | Request, model-output, stored-record, and client evidence validation |
+| PostgreSQL · `pg` · Tiger Data | Optional structured persistence, review events, scoped analytics; three SQL migrations |
+| Supermemory HTTP API | Optional project/scene-scoped contextual recall and approved review-derived memory |
+| Tailwind CSS · Lucide | Interface styling and icons |
+| Vitest · PGlite · Playwright | Unit/route tests, embedded PostgreSQL-compatible SQL tests, browser workflows with mocked provider responses |
+
+## Verification and observed results
+
+**Offline checks for this documentation pass:** lint, TypeScript typecheck, production build, **227 Vitest tests across 18 files**, **27 Playwright browser tests**, and **16 Python credential-helper tests** passed. No live provider calls or external database writes were made. [Verification scope and commands](docs/VERIFICATION.md).
+
+| Evidence | What it establishes—and what it does not |
+| --- | --- |
+| Unit and route tests | Validation, gates, selection, errors, and persistence contracts. Provider responses are mocked. |
+| Local integration tests | Real synthetic-media FFmpeg extraction, filesystem persistence, and SQL behavior in PGlite. Not a Tiger Data connectivity check. |
+| Browser tests | Upload, evidence navigation, review saves/reloads, error handling, and responsive layouts using synthetic video and intercepted API responses. Not live Gemini verification. |
+| Historical owner-approved run | Repository records describe a 15-second video, 30 frames, three visual groups, a 0-to-9-second comparison, and a missing-watch finding: HTTP 200 in **11.901 seconds**. Records also describe consented Supermemory ingest/recall and Tiger Data readback. These are earlier observations, not rerun here. |
+
+The recorded timing is **one observed run**, not average latency, an accuracy measurement, or a guarantee. The fixture and historical record do not establish detection performance on real productions. [Recorded run details and limitations](docs/AUTOMATIC-VIDEO.md#verification-labels) · [Integration evidence ledger](docs/INTEGRATION-VERIFICATION.md).
 
 ## Run locally
+
+**Local use only. No production authentication. Do not deploy publicly or expose through tunnels.**
+
+Prerequisites: a Node.js version supported by Next.js 16 (20.9+), npm, and `ffmpeg` / `ffprobe` on `PATH`. This documentation pass used Node.js 25.8.1; the repo does not pin a Node version.
 
 ```bash
 npm ci
 npm run dev -- --hostname 127.0.0.1
 ```
 
-Open http://127.0.0.1:3000. Keep the server bound to loopback. Build/lint checks: `npm run build` and `npm run lint`. Mocked unit/route tests: `npm test`. Browser tests: `npm run test:e2e` (first run: `npx playwright install chromium`). Passing mocks is not a real Gemini end-to-end verification. Stop the dev server before a production build, then restart it before browser checks to avoid stale `.next` assets.
+Open **http://127.0.0.1:3000**. The interface can run without credentials; analysis stays blocked. Do not copy over an existing `.env.local`.
 
-## Credentials and paid-analysis approval
+For first-time Gemini configuration, `npm run setup:gemini` prompts privately in your terminal and refuses to overwrite existing configuration. It leaves all service gates disabled. Never paste credentials into chat, browser inputs, command arguments, or Git.
 
-Copy `.env.example` to `.env.local` **only if `.env.local` does not already exist**. `.gitignore` excludes local environment files and explicitly permits the non-secret `.env.example` template. Never commit credentials.
+A live analysis requires a valid server-only `GEMINI_API_KEY`, an available `GEMINI_MODEL`, owner approval before setting `ALLOW_PAID_ANALYSIS=true`, a server restart, and separate browser approval for upload and potential cost. Optional integrations require their own keys, enable flags, and applicable consent. **Do not run `npm run db:migrate` without approval to change the target database.**
 
-Never paste keys into chat, source, browser form fields, command arguments, or shell history. From this repository, run this hidden-input setup command in your own terminal. It creates `.env.local` exclusively and refuses to overwrite an existing file:
+[Full setup and safety gates](docs/SETUP.md) · [Private optional-service configuration](docs/CREDENTIAL-SETUP.md) · [Honest demo procedure](docs/DEMO.md)
 
-```bash
-python3 - <<'PY'
-import getpass
-import os
-from pathlib import Path
+## Limitations, security, and privacy
 
-path = Path('.env.local')
-if path.exists():
-    raise SystemExit('.env.local exists; keep it and edit privately instead.')
-key = getpass.getpass('Gemini API key (hidden; Enter leaves analysis blocked): ').strip()
-if any(c in key for c in '\r\n\x00\'"#$\\'):
-    raise SystemExit('Unexpected key characters; no file written.')
-text = '\n'.join([
-    f'GEMINI_API_KEY={key}',
-    'GEMINI_MODEL=gemini-3.6-flash',
-    'SUPERMEMORY_API_KEY=',
-    'DATABASE_URL=',
-    'ALLOW_PAID_ANALYSIS=false',
-    '',
-])
-fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-with os.fdopen(fd, 'w') as file:
-    file.write(text)
-print('Created private .env.local; paid analysis remains disabled.')
-PY
-```
+- **Sampled evidence only.** Supported clips are short and bounded; subtle, unsampled, occluded, or semantically ambiguous details can be missed or misclassified. Human interpretation remains necessary.
+- **Not a hosted multi-user service.** No authentication or private-user isolation. Project/scene labels scope records but are not authorization. Same-origin checks are not authentication.
+- **Media persists locally.** Successful video analyses retain source media, frames, and records by default under gitignored `.continuityghost/videos/`. Custom `CONTINUITY_DATA_DIR` locations need equivalent access and Git-exclusion controls. There is no implemented retention/deletion policy. Use only footage and context you have permission to process.
+- **External services have separate privacy and cost boundaries.** Google receives selected images/context, not the complete video. Optional memory shares eligible facts, not raw frames. Provider retention is separate from local storage. Never commit credentials or private footage.
+- **Historical database TLS exception is not production-safe.** An owner-approved hackathon database used encrypted TLS 1.3 with certificate verification skipped for that URL. Restore verified TLS before any production consideration; do not copy or broaden the exception. [Database caveats](docs/DATABASE.md).
 
-Before any live call, the owner must approve potential costs and privately change server `ALLOW_PAID_ANALYSIS=true`, then restart the server. The browser must also explicitly approve **both** potential API cost and transmission of images/context. Neither checkbox substitutes for server approval; server approval does not substitute for browser consent. Do not pre-check consent. Missing any gate means no provider call. Failed requests may still incur provider charges; do not retry blindly.
+[Detailed security boundaries](docs/SECURITY.md).
 
-Supermemory and PostgreSQL are optional integrations, disabled until separately configured and approved. Never prefix server secrets with `NEXT_PUBLIC_`.
+## SunHacks 2026 award
 
-## Upload contract
+**Winner — Best Use of Gemini API | SunHacks 2026**
 
-`POST /api/analyze` accepts multipart fields `reference`, `candidate`, `projectId`, `sceneId`, `context`, `consent=true`, and `costApproved=true`.
+ContinuityGhost's **four-person team** received this category award on **November 15, 2026**. This is a team achievement—not an overall hackathon win. The supplied certificate names the winning project as “Continuity Ghost.”
 
-- Exactly two intended stills; each nonempty JPEG, PNG, or WebP up to **8 MiB (8,388,608 bytes)**. Declared MIME must match decoded bytes; filenames alone are not validation.
-- Server decodes actual bytes, rejects corrupt/mismatched/animated images and excessive decoded pixel counts, then strips metadata and normalizes images before sending them.
-- Total multipart request is bounded at **16,877,216 bytes** (two 8 MiB files plus 100,000 bytes of form overhead), including streamed bodies without a trusted `Content-Length`.
-- Project/scene labels: 1–120 characters after trimming. Context: up to 12,000 characters. Do not put secrets or unapproved production material in context.
-- Findings include evidence from both images, uncertainty, suggested action, and human review state. No inferred timestamps, fabricated bounding boxes, calibrated probabilities, or auto-confirmed continuity errors.
+![Four ContinuityGhost teammates on stage, each holding a Best Use of Gemini API certificate](docs/assets/awards/sunhacks-2026-gemini-winners.jpg)
 
-Responses: `400` malformed input/consent/image, `403` disallowed origin or server cost gate, `413` oversized request, `503` missing Gemini configuration, `502` provider failure or invalid model response. Configuration gates may run before input validation. Errors must not disclose provider payloads or keys.
+[View the award certificate](docs/assets/awards/sunhacks-2026-gemini-certificate.jpg) · [Alternate team photo](docs/assets/awards/sunhacks-2026-winning-team.jpg)
 
-Gemini supports multiple images in one prompt; this is the intended provider mechanism, not proof a live request succeeded. See official research and sources in [SPONSORS](docs/SPONSORS.md).
+## Engineering documentation
 
-## Project docs
+| Start here | Details |
+| --- | --- |
+| [Architecture](docs/ARCHITECTURE.md) · [Automatic video](docs/AUTOMATIC-VIDEO.md) | Current pipeline, legacy still-image path, API limits, recorded runs |
+| [Setup](docs/SETUP.md) · [Security](docs/SECURITY.md) · [Demo](docs/DEMO.md) | Configuration, consent/cost gates, safe local walkthrough |
+| [Database](docs/DATABASE.md) · [Memory](docs/MEMORY.md) | Durable records, optional integrations, consent and failure handling |
+| [Verification](docs/VERIFICATION.md) · [Integration ledger](docs/INTEGRATION-VERIFICATION.md) | Fresh offline checks versus historical live observations |
+| [PRD](docs/PRD.md) · [Status](docs/TASKS.md) · [Sponsor research](docs/SPONSORS.md) | Product scope, deferred work, historical compatibility research |
 
-- [PRD](docs/PRD.md): scope, user flow, acceptance criteria.
-- [Architecture](docs/ARCHITECTURE.md): current boundary and future isolation/storage design.
-- [Tasks](docs/TASKS.md): milestone checklist and deferred work; no invented completion checks.
-- [Demo](docs/DEMO.md): honest local demo, consent gates, mocked-vs-live distinction.
-- [Sponsors and compatibility research](docs/SPONSORS.md): official citations, API-version caveats, export research.
-
-## Integrated frontend
-
-Imported Figma design runs in the existing Next.js app; original export is untouched. Primary workflow accepts one 15–60-second MP4/WebM/MOV, extracts evidence and selects comparisons automatically. Findings link to real sample timestamps and supporting frames; saved decisions survive reload. Heuristic sampling is not exhaustive video understanding. Earlier live two-frame success does not verify this new automatic pipeline; offline tests do not claim genuine AI detection. Fresh explicit approval is required for live Gemini/Supermemory/Tiger Data tests. Legacy still API remains reusable internally.
+**Project links:** [Source](https://github.com/palash17sanghvi/continuityghost) · [Project video](https://www.youtube.com/watch?v=6cv2eZ5ibYQ) · [Award evidence](docs/assets/awards/sunhacks-2026-gemini-certificate.jpg)
