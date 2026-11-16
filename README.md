@@ -6,21 +6,27 @@
 
 Awarded November 15, 2026 · Built by a four-person team
 
-[**Watch Demo / Project Video →**](https://www.youtube.com/watch?v=6cv2eZ5ibYQ) · [Award & team](#sunhacks-2026-award) · [Architecture](docs/ARCHITECTURE.md) · [Run locally](#run-locally)
-
 Continuity mistakes can hide between takes: a watch disappears, a prop moves, or wardrobe changes. ContinuityGhost turns a short video into sampled frame comparisons, then uses Gemini to surface potential visual inconsistencies with timestamps and evidence. Filmmakers review each finding and decide whether it is an error, an intentional change, or insufficient evidence—not the model.
+
+[**Watch Demo →**](https://www.youtube.com/watch?v=6cv2eZ5ibYQ) · [**Devpost**](https://devpost.com/software/continuity-ghost) · [Architecture](docs/ARCHITECTURE.md) · [Award & team](#sunhacks-2026-award) · [Run locally](#run-locally)
 
 ## See the project
 
 [![Open the ContinuityGhost project video on YouTube](docs/assets/project-video-thumbnail.jpg)](https://www.youtube.com/watch?v=6cv2eZ5ibYQ)
 
-**[Watch the 2-minute project video](https://www.youtube.com/watch?v=6cv2eZ5ibYQ).** Supplied by the team; YouTube lists it as *Demo Video* by Johan Jagalur. Video metadata and availability were checked, but the full demonstration was not independently verified. The video is not evidence of live Gemini output.
+### Evidence you can review
 
-[![ContinuityGhost analysis studio showing a synthetic clip, a timestamped watch finding, comparison evidence, and human review controls](docs/assets/screenshots/analysis-studio-offline-fixture.jpg)](docs/assets/screenshots/analysis-studio-offline-fixture.jpg)
+[![Watch continuity finding with paired evidence frames at 2 and 10 seconds, uncertainty, and human review controls](docs/assets/screenshots/review-evidence-offline-fixture.jpg)](docs/assets/screenshots/review-evidence-offline-fixture.jpg)
 
-[Open the app screenshot full-size](docs/assets/screenshots/analysis-studio-offline-fixture.jpg).
+*ContinuityGhost review interface using synthetic video and mocked analysis findings for demonstration. Not a live Gemini inference result.*
 
-*Actual application interface captured by the repository's Playwright suite using browser-generated video and mocked API responses. The watch finding is a labeled test fixture, not a live Gemini result. [Screenshot provenance](docs/assets/README.md).*
+[![Video playback and timeline showing the selected continuity finding at 10 seconds in a 15-second synthetic clip](docs/assets/screenshots/video-timeline-offline-fixture.jpg)](docs/assets/screenshots/video-timeline-offline-fixture.jpg)
+
+*Playback and timeline from the same offline fixture. Click either image to inspect it.*
+
+[Full analysis-studio screenshot](docs/assets/screenshots/analysis-studio-offline-fixture.jpg) · [Screenshot provenance](docs/assets/README.md)
+
+**Upload one clip → inspect timestamped comparisons → confirm, dismiss, or mark intentional → save the review.**
 
 ## What it does
 
@@ -153,4 +159,4 @@ ContinuityGhost's **four-person team** received this category award on **Novembe
 | [Verification](docs/VERIFICATION.md) · [Integration ledger](docs/INTEGRATION-VERIFICATION.md) | Fresh offline checks versus historical live observations |
 | [PRD](docs/PRD.md) · [Status](docs/TASKS.md) · [Sponsor research](docs/SPONSORS.md) | Product scope, deferred work, historical compatibility research |
 
-**Project links:** [Source](https://github.com/palash17sanghvi/continuityghost) · [Project video](https://www.youtube.com/watch?v=6cv2eZ5ibYQ) · [Award evidence](docs/assets/awards/sunhacks-2026-gemini-certificate.jpg)
+**Project links:** [Source](https://github.com/palash17sanghvi/continuityghost) · [Project video](https://www.youtube.com/watch?v=6cv2eZ5ibYQ) · [Devpost](https://devpost.com/software/continuity-ghost) · [Award evidence](docs/assets/awards/sunhacks-2026-gemini-certificate.jpg)
